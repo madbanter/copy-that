@@ -27,3 +27,11 @@ conflict_policy: "rename"
     config = load_config(config_file)
     assert config.source_directory.name == "src"
     assert config.conflict_policy == "rename"
+
+def test_extension_normalization():
+    config = Config(
+        source_directory=Path("/tmp/src"),
+        destination_base=Path("/tmp/dest"),
+        include_extensions=["JPG", ".PNG", "mp4", ".ARW"]
+    )
+    assert config.include_extensions == [".jpg", ".png", ".mp4", ".arw"]
