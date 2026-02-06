@@ -1,0 +1,10 @@
+# Example configuration for CopyThat
+source_directory: "~/Desktop/test_source"
+destination_base: "~/Desktop/test_destination"
+folder_format: "%Y%m%d"
+include_extensions:
+  - .jpg
+  - .cr3
+  - .mp4
+  - .xmp
+conflict_policy: "skip"
