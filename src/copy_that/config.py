@@ -7,8 +7,15 @@ class Config(BaseModel):
     source_directory: Path
     destination_base: Path
     folder_format: str = "%Y%m%d"
-    include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".cr3", ".mp4", ".xmp"])
+    include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".jpeg", ".cr3", ".arw", ".dng", ".mp4", ".xmp"])
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
+
+    @field_validator("include_extensions", mode="before")
+    @classmethod
+    def normalize_extensions(cls, v: List[str]) -> List[str]:
+        if not isinstance(v, list):
+            return v
+        return [ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in v]
 
     @field_validator("source_directory", "destination_base")
     @classmethod
