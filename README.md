@@ -11,6 +11,7 @@ The default workflow is optimized for photographers and media creators:
 ## Features
 - **Preserve Metadata**: Uses `shutil.copy2` to ensure file timestamps and permissions are maintained.
 - **Skip Existing**: By default, identifies files already present in the destination and skips them to avoid redundant operations.
+- **Case-Insensitive Matching**: Automatically matches file extensions regardless of case (e.g., `.JPG` matches `.jpg`).
 - **Flexible Organization**: Configurable subfolder naming (defaulting to date-based structures).
 - **YAML Configuration**: Easy-to-edit settings for source/destination paths and file filters.
 
@@ -23,7 +24,10 @@ destination_base: "/Users/user/Pictures/Imports"
 folder_format: "%Y%m%d"  # Result: 20231027/
 include_extensions:
   - .jpg
+  - .jpeg
   - .cr3
+  - .arw
+  - .dng
   - .mp4
   - .xmp
 conflict_policy: "skip" # Options: skip, overwrite, rename
