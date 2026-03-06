@@ -1,12 +1,50 @@
 import argparse
 import logging
 import sys
+import shutil
 from pathlib import Path
 
-from copy_that.config import load_config
+from copy_that.config import load_config, Config
 from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
 from copy_that.processor import copy_file
+
+logger = logging.getLogger(__name__)
+
+def perform_space_check(source_files: list[Path], config: Config) -> None:
+    """
+    Perform a 'Best Effort' disk space check before copying.
+    If conflict_policy is 'skip', it ignores files that already exist at the destination.
+    """
+    total_size_needed = 0
+    for source_file in source_files:
+        dest_file = generate_destination_path(
+            source_file,
+            config.destination_base,
+            config.folder_format
+        )
+        
+        # In 'skip' mode, we only count files that don't exist yet.
+        # This reduces false warnings when most files are already synced.
+        if config.conflict_policy == "skip" and dest_file.exists():
+            continue
+            
+        total_size_needed += source_file.stat().st_size
+
+    # Ensure destination parent exists to check disk usage
+    check_path = config.destination_base
+    while not check_path.exists() and check_path.parent != check_path:
+        check_path = check_path.parent
+
+    free_space = shutil.disk_usage(check_path).free
+    
+    if total_size_needed > free_space:
+        mb = 1024 * 1024
+        logger.warning(
+            f"Possible insufficient disk space! "
+            f"Required: {total_size_needed / mb:.2f} MB, "
+            f"Available: {free_space / mb:.2f} MB"
+        )
 
 def main():
     parser = argparse.ArgumentParser(description="Copy and organize files from source to destination.")
@@ -19,7 +57,6 @@ def main():
     # Setup logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
-    logger = logging.getLogger(__name__)
 
     try:
         config = load_config(args.config)
@@ -34,10 +71,16 @@ def main():
         logger.error(f"Source directory does not exist: {config.source_directory}")
         sys.exit(1)
 
+    # Discover files first to allow for pre-processing checks
+    source_files = list(discover_files(config.source_directory, config.include_extensions))
+    
+    if config.pre_sync_space_check:
+        perform_space_check(source_files, config)
+
     files_processed = 0
     files_copied = 0
 
-    for source_file in discover_files(config.source_directory, config.include_extensions):
+    for source_file in source_files:
         dest_file = generate_destination_path(
             source_file,
             config.destination_base,

@@ -11,6 +11,7 @@ class Config(BaseModel):
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
     verification_method: Literal["none", "size", "md5", "sha1"] = "none"
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry"
+    pre_sync_space_check: bool = True
 
     @field_validator("include_extensions", mode="before")
     @classmethod
