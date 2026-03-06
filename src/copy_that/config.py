@@ -9,6 +9,7 @@ class Config(BaseModel):
     folder_format: str = "%Y%m%d"
     include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".jpeg", ".cr3", ".arw", ".dng", ".mp4", ".xmp"])
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
+    verification_method: Literal["none", "size", "md5", "sha1"] = "none"
 
     @field_validator("include_extensions", mode="before")
     @classmethod

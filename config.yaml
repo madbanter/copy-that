@@ -10,3 +10,4 @@ include_extensions:
   - .jpeg
   - .arw
 conflict_policy: "skip"
+verification_method: "none" # options: none, size, md5, sha1

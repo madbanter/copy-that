@@ -1,18 +1,59 @@
 import shutil
 import logging
+import hashlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 
 logger = logging.getLogger(__name__)
+
+def calculate_checksum(path: Path, algorithm: str) -> str:
+    """
+    Calculate the checksum of a file using the specified algorithm (md5 or sha1).
+    """
+    hash_func = hashlib.md5() if algorithm == "md5" else hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hash_func.update(chunk)
+    return hash_func.hexdigest()
+
+def verify_copy(
+    source: Path, 
+    destination: Path, 
+    method: Literal["none", "size", "md5", "sha1"]
+) -> bool:
+    """
+    Verify that the destination file matches the source file based on the selected method.
+    """
+    if method == "none":
+        return True
+    
+    if method == "size":
+        source_size = source.stat().st_size
+        dest_size = destination.stat().st_size
+        if source_size != dest_size:
+            logger.error(f"Verification failed: Size mismatch for {destination.name} (Source: {source_size}, Dest: {dest_size})")
+            return False
+        return True
+    
+    if method in ("md5", "sha1"):
+        source_hash = calculate_checksum(source, method)
+        dest_hash = calculate_checksum(destination, method)
+        if source_hash != dest_hash:
+            logger.error(f"Verification failed: {method.upper()} mismatch for {destination.name}")
+            return False
+        return True
+    
+    return True
 
 def copy_file(
     source: Path, 
     destination: Path, 
-    conflict_policy: str = "skip"
+    conflict_policy: str = "skip",
+    verification_method: Literal["none", "size", "md5", "sha1"] = "none"
 ) -> bool:
     """
-    Copy a file from source to destination with metadata preservation.
-    Returns True if the file was copied, False if skipped.
+    Copy a file from source to destination with metadata preservation and verification.
+    Returns True if the file was copied and verified, False if skipped or verification failed.
     """
     if destination.exists():
         if conflict_policy == "skip":
@@ -28,7 +69,18 @@ def copy_file(
     destination.parent.mkdir(parents=True, exist_ok=True)
     
     # shutil.copy2 preserves metadata (mtime, atime, flags, etc.)
-    shutil.copy2(source, destination)
+    try:
+        shutil.copy2(source, destination)
+    except Exception as e:
+        logger.error(f"Failed to copy {source} to {destination}: {e}")
+        return False
+
+    # Perform verification
+    if not verify_copy(source, destination, verification_method):
+        # Optional: remove the corrupted destination file?
+        # destination.unlink(missing_ok=True)
+        return False
+
     return True
 
 def get_unique_path(path: Path) -> Path:
