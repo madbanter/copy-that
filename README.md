@@ -1,39 +1,63 @@
 # CopyThat
 
-A configurable Python utility designed to automate the transfer and organization of files from external drives (e.g., SD cards, external HDDs) to a structured destination directory.
+A high-performance, configurable Python utility designed to automate the transfer and organization of files from external drives (e.g., SD cards, external HDDs) to a structured destination directory.
 
 ## Core Workflow
 The default workflow is optimized for photographers and media creators:
 1. **Scan**: Identify media files on a source drive.
 2. **Organize**: Determine the destination subfolder based on the file's creation date (`YYYYMMDD`).
-3. **Copy**: Transfer new files to the destination while preserving original filenames and all metadata.
+3. **Copy**: Transfer files to the destination while preserving original filenames and all metadata.
 
 ## Features
-- **Preserve Metadata**: Uses `shutil.copy2` to ensure file timestamps and permissions are maintained.
-- **Skip Existing**: By default, identifies files already present in the destination and skips them to avoid redundant operations.
+- **High Performance**: Concurrent file copying using `ThreadPoolExecutor` (multi-threaded).
+- **Metadata Preservation**: Uses `shutil.copy2` to ensure file timestamps and permissions are maintained.
+- **Data Integrity**: Optional post-copy verification (Size, MD5, or SHA1 checksums).
+- **Intelligent Conflict Handling**: Configurable policies to skip, overwrite, or rename files when they exist at the destination.
 - **Case-Insensitive Matching**: Automatically matches file extensions regardless of case (e.g., `.JPG` matches `.jpg`).
-- **Flexible Organization**: Configurable subfolder naming (defaulting to date-based structures).
+- **Safety Checks**: Optional pre-sync disk space check to ensure the destination has enough room.
+- **Fail-Safe Behavior**: Configurable responses to verification failures (retry, ignore, or delete).
 - **YAML Configuration**: Easy-to-edit settings for source/destination paths and file filters.
+
+## Usage
+Run the script using Python:
+
+```bash
+uv run python -m copy_that.main --config config.yaml
+```
+
+### CLI Arguments
+- `--config`: Path to the YAML configuration file (default: `config.yaml`).
+- `--dry-run`: Show what would be copied without actually performing any operations.
+- `--verbose`: Enable detailed logging (DEBUG level).
 
 ## Configuration
 The application uses a `config.yaml` file to define behavior:
 
 ```yaml
-source_directory: "/Volumes/SD_CARD"
-destination_base: "/Users/user/Pictures/Imports"
-folder_format: "%Y%m%d"  # Result: 20231027/
+# Source & Destination
+source_directory: "~/Pictures/Source"
+destination_base: "~/Pictures/Organized"
+folder_format: "%Y/%m-%B/%d"  # Supports standard strftime formats
+
+# File Filters
 include_extensions:
   - .jpg
-  - .jpeg
   - .cr3
-  - .arw
-  - .dng
   - .mp4
   - .xmp
-conflict_policy: "skip" # Options: skip, overwrite, rename
+
+# Copy Behavior
+conflict_policy: "skip" # options: skip, overwrite, rename
+max_workers: null       # number of threads (null = system default, 1 = sequential)
+
+# Verification & Safety
+verification_method: "none" # options: none, size, md5, sha1
+verification_failure_behavior: "retry" # options: retry, ignore, delete
+pre_sync_space_check: false # if true, performs a pre-scan to estimate required space
 ```
 
 ## Security & Principles
 - **Data Integrity**: Focuses on copying rather than moving to ensure source data remains untouched.
-- **Security**: No hardcoded paths, secrets, or sensitive identifiers.
-- **Minimal Dependencies**: Built with standard Python libraries where possible for maximum portability.
+- **Efficiency**: Uses generators for file discovery to maintain a low memory footprint.
+- **Zero Dependencies**: Uses standard library features (`shutil.copy2`, `hashlib`, `concurrent.futures`) for core logic.
+- **Pydantic Validation**: Configuration is strictly validated at startup to prevent runtime errors.
