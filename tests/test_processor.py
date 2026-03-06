@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from copy_that.processor import copy_file, calculate_checksum, verify_copy
+from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path
 
 def test_calculate_checksum(tmp_path):
     file_path = tmp_path / "test.txt"
@@ -96,3 +96,71 @@ def test_copy_file_verification_failure_retry(tmp_path, monkeypatch):
     assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="retry") is True
     assert len(calls) == 2
     assert dest_file.exists()
+
+def test_conflict_policy_skip(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("source content")
+    dest = tmp_path / "dest.txt"
+    dest.write_text("existing content")
+    
+    assert copy_file(source, dest, conflict_policy="skip") is False
+    assert dest.read_text() == "existing content"
+
+def test_conflict_policy_overwrite(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("source content")
+    dest = tmp_path / "dest.txt"
+    dest.write_text("existing content")
+    
+    assert copy_file(source, dest, conflict_policy="overwrite") is True
+    assert dest.read_text() == "source content"
+
+def test_conflict_policy_rename(tmp_path):
+    # Setup directories
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    dst_dir = tmp_path / "dst"
+    dst_dir.mkdir()
+    
+    source = src_dir / "image.jpg"
+    source.write_text("new data")
+    
+    dest = dst_dir / "image.jpg"
+    dest.write_text("old data")
+    
+    # Perform copy with rename policy
+    assert copy_file(source, dest, conflict_policy="rename") is True
+    
+    # The original dest should still have old data
+    assert dest.exists()
+    assert dest.read_text() == "old data"
+    
+    # A new file should be created with new data
+    renamed_dest = dst_dir / "image_1.jpg"
+    assert renamed_dest.exists()
+    assert renamed_dest.read_text() == "new data"
+
+def test_get_unique_path(tmp_path):
+    base_path = tmp_path / "test.txt"
+    base_path.write_text("0")
+    
+    path_1 = get_unique_path(base_path)
+    assert path_1 == tmp_path / "test_1.txt"
+    
+    path_1.write_text("1")
+    path_2 = get_unique_path(base_path)
+    assert path_2 == tmp_path / "test_2.txt"
+
+def test_copy_file_permission_error(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("data")
+    dest = tmp_path / "dest.txt"
+    
+    import shutil
+    def mocked_copy2(s, d):
+        raise PermissionError("Permission denied")
+    
+    monkeypatch.setattr(shutil, "copy2", mocked_copy2)
+    
+    # Should log error and return False instead of crashing
+    assert copy_file(source, dest) is False

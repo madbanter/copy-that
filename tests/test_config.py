@@ -16,6 +16,15 @@ def test_config_expansion(tmp_path):
     assert config.source_directory == source.resolve()
     assert config.destination_base == dest.resolve()
 
+def test_home_expansion():
+    # Pydantic should expand ~ to the actual home directory
+    config = Config(
+        source_directory=Path("~/src"),
+        destination_base=Path("~/dest")
+    )
+    assert config.source_directory == Path.home() / "src"
+    assert config.destination_base == Path.home() / "dest"
+
 def test_load_config_file(tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text("""
