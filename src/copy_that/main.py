@@ -10,10 +10,10 @@ from copy_that.processor import copy_file
 
 def main():
     parser = argparse.ArgumentParser(description="Copy and organize files from source to destination.")
-    parser.add_Par_arg = parser.add_argument("--config", type=Path, default=Path("config.yaml"), help="Path to config file")
+    parser.add_argument("--config", type=Path, default=Path("config.yaml"), help="Path to config file")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be copied without actually copying")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    
+
     args = parser.parse_args()
 
     # Setup logging
@@ -39,13 +39,13 @@ def main():
 
     for source_file in discover_files(config.source_directory, config.include_extensions):
         dest_file = generate_destination_path(
-            source_file, 
-            config.destination_base, 
+            source_file,
+            config.destination_base,
             config.folder_format
         )
-        
+
         files_processed += 1
-        
+
         if args.dry_run:
             logger.info(f"[DRY RUN] Would copy {source_file.name} to {dest_file.relative_to(config.destination_base.parent)}")
         else:

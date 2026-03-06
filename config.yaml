@@ -7,4 +7,6 @@ include_extensions:
   - .cr3
   - .mp4
   - .xmp
+  - .jpeg
+  - .arw
 conflict_policy: "skip"
