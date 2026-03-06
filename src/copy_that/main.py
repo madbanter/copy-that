@@ -23,8 +23,11 @@ def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
     for source_file in source_files:
         dest_file = generate_destination_path(
             source_file,
+            config.source_directory,
             config.destination_base,
-            config.folder_format
+            config.folder_format,
+            config.organization_mode,
+            config.date_source
         )
         
         if config.conflict_policy == "skip" and dest_file.exists():
@@ -52,8 +55,11 @@ def process_single_file(source_file: Path, config: Config) -> bool:
     """
     dest_file = generate_destination_path(
         source_file,
+        config.source_directory,
         config.destination_base,
-        config.folder_format
+        config.folder_format,
+        config.organization_mode,
+        config.date_source
     )
 
     if copy_file(
@@ -87,6 +93,9 @@ def main():
 
     logger.info(f"Source: {config.source_directory}")
     logger.info(f"Destination: {config.destination_base}")
+    logger.info(f"Mode: {config.organization_mode}")
+    if config.organization_mode == "date":
+        logger.info(f"Date Source: {config.date_source}")
 
     if not config.source_directory.exists():
         logger.error(f"Source directory does not exist: {config.source_directory}")
@@ -105,7 +114,14 @@ def main():
 
     if args.dry_run:
         for source_file in files_to_sync:
-            dest_file = generate_destination_path(source_file, config.destination_base, config.folder_format)
+            dest_file = generate_destination_path(
+                source_file, 
+                config.source_directory, 
+                config.destination_base, 
+                config.folder_format,
+                config.organization_mode,
+                config.date_source
+            )
             logger.info(f"[DRY RUN] Would copy {source_file.name} to {dest_file.relative_to(config.destination_base.parent)}")
             files_processed += 1
         logger.info(f"Dry run complete. Would process {files_processed} files.")

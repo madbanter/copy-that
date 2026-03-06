@@ -1,28 +1,69 @@
-from pathlib import Path
 import datetime
+from pathlib import Path
 from copy_that.organizer import generate_destination_path
 
-def test_generate_destination_path():
-    source = Path("test_image.jpg")
-    dest_base = Path("/tmp/imports")
-    folder_format = "%Y%m%d"
-    
-    # We can't easily mock stat() without a real file or a complex mock,
-    # but we can verify the structure.
-    # Note: This will use the actual file if it exists, but for a unit test
-    # we should ideally use a temp file.
-    pass
-
-def test_path_structure(tmp_path):
-    source = tmp_path / "image.jpg"
+def test_path_structure_date(tmp_path):
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    source = source_root / "image.jpg"
     source.write_text("dummy content")
     
     dest_base = tmp_path / "dest"
     folder_format = "%Y%m%d"
     
-    result = generate_destination_path(source, dest_base, folder_format)
+    result = generate_destination_path(
+        source, 
+        source_root, 
+        dest_base, 
+        folder_format, 
+        mode="date",
+        date_source="creation"
+    )
     
-    today = datetime.datetime.now().strftime("%Y%m%d")
-    expected = dest_base / today / "image.jpg"
+    # We can't easily mock stat() creation time in a cross-platform way,
+    # but we can check if it contains a date-like folder.
+    assert result.name == "image.jpg"
+    assert result.parent.parent == dest_base
+
+def test_path_structure_date_modification(tmp_path):
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    source = source_root / "image.jpg"
+    source.write_text("dummy content")
     
+    dest_base = tmp_path / "dest"
+    folder_format = "%Y%m%d"
+    
+    result = generate_destination_path(
+        source, 
+        source_root, 
+        dest_base, 
+        folder_format, 
+        mode="date",
+        date_source="modification"
+    )
+    
+    mtime = datetime.datetime.fromtimestamp(source.stat().st_mtime).strftime(folder_format)
+    expected = dest_base / mtime / "image.jpg"
+    assert result == expected
+
+def test_path_structure_mirror(tmp_path):
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    subfolder = source_root / "vacation" / "2023"
+    subfolder.mkdir(parents=True)
+    source = subfolder / "photo.jpg"
+    source.write_text("data")
+    
+    dest_base = tmp_path / "dest"
+    
+    result = generate_destination_path(
+        source, 
+        source_root, 
+        dest_base, 
+        folder_format="", 
+        mode="mirror"
+    )
+    
+    expected = dest_base / "vacation" / "2023" / "photo.jpg"
     assert result == expected

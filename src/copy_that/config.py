@@ -7,6 +7,8 @@ class Config(BaseModel):
     source_directory: Path
     destination_base: Path
     folder_format: str = "%Y%m%d"
+    organization_mode: Literal["date", "mirror"] = "date"
+    date_source: Literal["creation", "modification"] = "creation"
     include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".jpeg", ".cr3", ".arw", ".dng", ".mp4", ".xmp"])
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
     verification_method: Literal["none", "size", "md5", "sha1"] = "none"

@@ -2,6 +2,8 @@
 source_directory: "~/Desktop/test_source"
 destination_base: "~/Desktop/test_destination"
 folder_format: "%Y%m%d"
+organization_mode: "date" # options: date (use folder_format), mirror (preserve source structure)
+date_source: "creation" # options: creation, modification (only applies to 'date' mode)
 include_extensions:
   - .jpg
   - .cr3

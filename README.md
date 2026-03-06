@@ -5,10 +5,13 @@ A high-performance, configurable Python utility designed to automate the transfe
 ## Core Workflow
 The default workflow is optimized for photographers and media creators:
 1. **Scan**: Identify media files on a source drive.
-2. **Organize**: Determine the destination subfolder based on the file's creation date (`YYYYMMDD`).
+2. **Organize**: Determine the destination path based on the chosen mode.
 3. **Copy**: Transfer files to the destination while preserving original filenames and all metadata.
 
 ## Features
+- **Flexible Organization Modes**: 
+  - **Date Mode**: Groups files into subfolders based on creation or modification dates.
+  - **Mirror Mode**: Preserves the original folder structure of the source directory.
 - **High Performance**: Concurrent file copying using `ThreadPoolExecutor` (multi-threaded).
 - **Metadata Preservation**: Uses `shutil.copy2` to ensure file timestamps and permissions are maintained.
 - **Data Integrity**: Optional post-copy verification (Size, MD5, or SHA1 checksums).
@@ -37,7 +40,11 @@ The application uses a `config.yaml` file to define behavior:
 # Source & Destination
 source_directory: "~/Pictures/Source"
 destination_base: "~/Pictures/Organized"
-folder_format: "%Y/%m-%B/%d"  # Supports standard strftime formats
+
+# Organization
+organization_mode: "date"  # options: date, mirror
+folder_format: "%Y/%m-%B/%d"  # used only in 'date' mode
+date_source: "creation"    # options: creation, modification (used only in 'date' mode)
 
 # File Filters
 include_extensions:

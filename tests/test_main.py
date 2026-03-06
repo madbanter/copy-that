@@ -53,7 +53,14 @@ def test_perform_space_check_skip_existing(tmp_path, monkeypatch, caplog):
         conflict_policy="skip"
     )
     
-    dest_file = generate_destination_path(source_file, dest_base, config.folder_format)
+    dest_file = generate_destination_path(
+        source_file, 
+        config.source_directory,
+        dest_base, 
+        config.folder_format,
+        config.organization_mode,
+        config.date_source
+    )
     dest_file.parent.mkdir(parents=True, exist_ok=True)
     dest_file.write_text("existing content")
     
