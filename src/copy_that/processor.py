@@ -49,7 +49,9 @@ def copy_file(
     source: Path, 
     destination: Path, 
     conflict_policy: str = "skip",
-    verification_method: Literal["none", "size", "md5", "sha1"] = "none"
+    verification_method: Literal["none", "size", "md5", "sha1"] = "none",
+    verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry",
+    _retry_count: int = 0
 ) -> bool:
     """
     Copy a file from source to destination with metadata preservation and verification.
@@ -77,9 +79,25 @@ def copy_file(
 
     # Perform verification
     if not verify_copy(source, destination, verification_method):
-        # Optional: remove the corrupted destination file?
-        # destination.unlink(missing_ok=True)
-        return False
+        if verification_failure_behavior == "retry" and _retry_count < 1:
+            logger.info(f"Retrying copy for {source.name}...")
+            return copy_file(
+                source, 
+                destination, 
+                conflict_policy="overwrite", # Use overwrite during retry
+                verification_method=verification_method,
+                verification_failure_behavior=verification_failure_behavior,
+                _retry_count=_retry_count + 1
+            )
+        elif verification_failure_behavior == "delete":
+            logger.warning(f"Deleting corrupted destination file: {destination}")
+            destination.unlink(missing_ok=True)
+            return False
+        elif verification_failure_behavior == "ignore":
+            logger.warning(f"Verification failed for {destination.name}, but ignoring per config.")
+            return True
+        else:
+            return False
 
     return True
 

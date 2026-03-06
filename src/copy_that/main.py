@@ -49,7 +49,13 @@ def main():
         if args.dry_run:
             logger.info(f"[DRY RUN] Would copy {source_file.name} to {dest_file.relative_to(config.destination_base.parent)}")
         else:
-            if copy_file(source_file, dest_file, config.conflict_policy, config.verification_method):
+            if copy_file(
+                source_file, 
+                dest_file, 
+                config.conflict_policy, 
+                config.verification_method,
+                config.verification_failure_behavior
+            ):
                 files_copied += 1
                 logger.info(f"Copied {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
 

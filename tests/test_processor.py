@@ -50,7 +50,7 @@ def test_copy_file_with_verification(tmp_path):
     assert dest_file.exists()
     assert dest_file.read_text() == "fake image data"
 
-def test_copy_file_verification_failure(tmp_path, monkeypatch):
+def test_copy_file_verification_failure_delete(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
     source_file.write_text("important data")
     dest_file = tmp_path / "dest.txt"
@@ -59,4 +59,40 @@ def test_copy_file_verification_failure(tmp_path, monkeypatch):
     import copy_that.processor
     monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m: False)
     
-    assert copy_file(source_file, dest_file, verification_method="md5") is False
+    assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="delete") is False
+    assert not dest_file.exists()
+    assert source_file.exists() # Ensure source is NEVER deleted
+
+def test_copy_file_verification_failure_ignore(tmp_path, monkeypatch):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("important data")
+    dest_file = tmp_path / "dest.txt"
+    
+    # Mock verify_copy to simulate a failure
+    import copy_that.processor
+    monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m: False)
+    
+    assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="ignore") is True
+    assert dest_file.exists()
+
+def test_copy_file_verification_failure_retry(tmp_path, monkeypatch):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("important data")
+    dest_file = tmp_path / "dest.txt"
+    
+    # Track calls to verify_copy
+    calls = []
+    import copy_that.processor
+    original_verify = copy_that.processor.verify_copy
+    
+    def mocked_verify(s, d, m):
+        calls.append(True)
+        if len(calls) == 1:
+            return False # Fail first time
+        return True # Succeed second time
+    
+    monkeypatch.setattr(copy_that.processor, "verify_copy", mocked_verify)
+    
+    assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="retry") is True
+    assert len(calls) == 2
+    assert dest_file.exists()
