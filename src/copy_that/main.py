@@ -3,6 +3,7 @@ import logging
 import sys
 import shutil
 from pathlib import Path
+from typing import Iterable
 
 from copy_that.config import load_config, Config
 from copy_that.discovery import discover_files
@@ -11,10 +12,11 @@ from copy_that.processor import copy_file
 
 logger = logging.getLogger(__name__)
 
-def perform_space_check(source_files: list[Path], config: Config) -> None:
+def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
     """
     Perform a 'Best Effort' disk space check before copying.
     If conflict_policy is 'skip', it ignores files that already exist at the destination.
+    Note: This consumes the provided iterable.
     """
     total_size_needed = 0
     for source_file in source_files:
@@ -25,7 +27,6 @@ def perform_space_check(source_files: list[Path], config: Config) -> None:
         )
         
         # In 'skip' mode, we only count files that don't exist yet.
-        # This reduces false warnings when most files are already synced.
         if config.conflict_policy == "skip" and dest_file.exists():
             continue
             
@@ -71,16 +72,17 @@ def main():
         logger.error(f"Source directory does not exist: {config.source_directory}")
         sys.exit(1)
 
-    # Discover files first to allow for pre-processing checks
-    source_files = list(discover_files(config.source_directory, config.include_extensions))
-    
+    # If space check is enabled, we perform a pre-scan (second scan)
     if config.pre_sync_space_check:
-        perform_space_check(source_files, config)
+        logger.info("Performing pre-sync disk space check...")
+        space_check_generator = discover_files(config.source_directory, config.include_extensions)
+        perform_space_check(space_check_generator, config)
 
     files_processed = 0
     files_copied = 0
 
-    for source_file in source_files:
+    # The actual sync uses the generator directly for efficiency
+    for source_file in discover_files(config.source_directory, config.include_extensions):
         dest_file = generate_destination_path(
             source_file,
             config.destination_base,
