@@ -73,7 +73,7 @@ def test_perform_space_check_skip_existing(tmp_path, monkeypatch, caplog):
     
     assert "Possible insufficient disk space!" not in caplog.text
 
-def test_dry_run_no_io(tmp_path, monkeypatch, caplog):
+def test_dry_run_no_io(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("data")
@@ -96,8 +96,127 @@ destination_base: {dest_dir}
     # Mock sys.argv
     monkeypatch.setattr("sys.argv", ["copy-that", "--config", str(config_file), "--dry-run"])
     
-    with caplog.at_level("INFO"):
+    with pytest.raises(SystemExit) as e:
         main()
-        
-    assert "[DRY RUN] Would copy" in caplog.text
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Would copy" in captured.err
     assert not dest_dir.exists()
+
+def test_cli_overrides(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    
+    dest_dir = tmp_path / "dest"
+    
+    # We won't use a config file, just CLI overrides
+    import copy_that.main
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--config", "nonexistent-for-test.yaml",
+        "--source", str(source_dir), 
+        "--dest", str(dest_dir), 
+        "--mode", "mirror",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        copy_that.main.main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert f"Source: {source_dir.resolve()}" in captured.err
+    assert f"Destination: {dest_dir.resolve()}" in captured.err
+    assert "Mode: mirror" in captured.err
+    assert "[DRY RUN] Would copy" in captured.err
+
+def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
+    # Mock sys.argv to point to a non-existent source
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--source", str(tmp_path / "nonexistent"), 
+        "--dest", str(tmp_path / "dest"),
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 1
+    
+    captured = capsys.readouterr()
+    assert "Source directory does not exist" in captured.err
+
+def test_main_config_error(tmp_path, monkeypatch, capsys):
+    # Mock sys.argv to point to an invalid config
+    config_file = tmp_path / "invalid_config.yaml"
+    config_file.write_text("source_directory: []") # Should fail pydantic validation
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--config", str(config_file)
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 1
+    
+    captured = capsys.readouterr()
+    assert "Configuration error" in captured.err
+
+def test_main_real_sync(tmp_path, monkeypatch, capsys):
+    # Setup real source and destination
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "photo.jpg").write_text("image data content")
+    
+    dest_dir = tmp_path / "dest"
+    
+    # Run real sync using mirror mode
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--config", "nonexistent-for-test.yaml",
+        "--source", str(source_dir), 
+        "--dest", str(dest_dir),
+        "--mode", "mirror",
+        "--no-space-check"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    # Verify file was actually copied
+    expected_file = dest_dir / "photo.jpg"
+    assert expected_file.exists()
+    assert expected_file.read_text() == "image data content"
+    
+    captured = capsys.readouterr()
+    assert "Sync complete" in captured.err
+
+def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    
+    dest_dir = tmp_path / "dest"
+    
+    # Mock disk_usage to trigger a warning
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(100, 99, 1))
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--space-check",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert "Performing pre-sync disk space check" in captured.err
+    assert "Possible insufficient disk space!" in captured.err
