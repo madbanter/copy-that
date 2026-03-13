@@ -1,16 +1,19 @@
-import argparse
 import logging
 import sys
 import shutil
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from copy_that.config import load_config, Config
+import typer
+from typing_extensions import Annotated
+
+from copy_that.config import merge_config, Config
 from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
 from copy_that.processor import copy_file
 
+app = typer.Typer(help="Copy and organize files from source to destination.", add_completion=False)
 logger = logging.getLogger(__name__)
 
 def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
@@ -73,30 +76,56 @@ def process_single_file(source_file: Path, config: Config) -> bool:
         return True
     return False
 
-def main():
-    parser = argparse.ArgumentParser(description="Copy and organize files from source to destination.")
-    parser.add_argument("--config", type=Path, default=Path("config.yaml"), help="Path to config file")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be copied without actually copying")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-
-    args = parser.parse_args()
-
+@app.command()
+def sync(
+    config_path: Annotated[Optional[Path], typer.Option("--config", "-c", help="Path to config file")] = Path("config.yaml"),
+    source: Annotated[Optional[Path], typer.Option("--source", "-s", help="Source directory")] = None,
+    dest: Annotated[Optional[Path], typer.Option("--dest", "-d", help="Destination base directory")] = None,
+    mode: Annotated[Optional[str], typer.Option("--mode", help="Organization mode (date, mirror)")] = None,
+    format: Annotated[Optional[str], typer.Option("--format", help="Folder format for date mode")] = None,
+    date_source: Annotated[Optional[str], typer.Option("--date-source", help="Date source (creation, modification)")] = None,
+    extensions: Annotated[Optional[List[str]], typer.Option("--ext", help="Include extensions (can be repeated)")] = None,
+    conflict: Annotated[Optional[str], typer.Option("--conflict", help="Conflict policy (skip, overwrite, rename)")] = None,
+    verify: Annotated[Optional[str], typer.Option("--verify", help="Verification method (none, size, md5, sha1)")] = None,
+    verify_behavior: Annotated[Optional[str], typer.Option("--verify-behavior", help="Verification failure behavior (retry, ignore, delete)")] = None,
+    space_check: Annotated[Optional[bool], typer.Option("--space-check/--no-space-check", help="Enable/disable pre-sync space check")] = None,
+    workers: Annotated[Optional[int], typer.Option("--workers", help="Max workers for concurrent copying")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be copied without actually copying")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose logging")] = False,
+):
+    """
+    Sync and organize files from source to destination.
+    """
     # Setup logging
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", force=True)
+
+    # Merge CLI options into a single config object
+    # Mapping CLI names to Config model field names
+    cli_overrides = {
+        "source_directory": source,
+        "destination_base": dest,
+        "organization_mode": mode,
+        "folder_format": format,
+        "date_source": date_source,
+        "include_extensions": extensions,
+        "conflict_policy": conflict,
+        "verification_method": verify,
+        "verification_failure_behavior": verify_behavior,
+        "pre_sync_space_check": space_check,
+        "max_workers": workers,
+    }
 
     try:
-        config = load_config(args.config)
+        config = merge_config(config_path, **cli_overrides)
     except Exception as e:
-        logger.error(f"Failed to load config: {e}")
+        logger.error(f"Configuration error: {e}")
         sys.exit(1)
 
     logger.info(f"Source: {config.source_directory}")
     logger.info(f"Destination: {config.destination_base}")
     logger.info(f"Mode: {config.organization_mode}")
-    if config.organization_mode == "date":
-        logger.info(f"Date Source: {config.date_source}")
-
+    
     if not config.source_directory.exists():
         logger.error(f"Source directory does not exist: {config.source_directory}")
         sys.exit(1)
@@ -106,13 +135,12 @@ def main():
         space_check_generator = discover_files(config.source_directory, config.include_extensions)
         perform_space_check(space_check_generator, config)
 
+    # Discover files
+    files_to_sync = list(discover_files(config.source_directory, config.include_extensions))
     files_processed = 0
     files_copied = 0
 
-    # Discover files
-    files_to_sync = discover_files(config.source_directory, config.include_extensions)
-
-    if args.dry_run:
+    if dry_run:
         for source_file in files_to_sync:
             dest_file = generate_destination_path(
                 source_file, 
@@ -139,6 +167,9 @@ def main():
                     files_copied += 1
 
         logger.info(f"Sync complete. Processed {files_processed} files, copied {files_copied}.")
+
+def main():
+    app()
 
 if __name__ == "__main__":
     main()
