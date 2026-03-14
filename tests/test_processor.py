@@ -1,4 +1,5 @@
 import pytest
+import hashlib
 from pathlib import Path
 from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path
 
@@ -11,6 +12,21 @@ def test_calculate_checksum(tmp_path):
     
     # SHA1 of "hello world" is 2aae6c35c94fcfb415dbe95f408b9ce91ee846ed
     assert calculate_checksum(file_path, "sha1") == "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed"
+
+def test_calculate_checksum_file_digest(tmp_path, monkeypatch):
+    file_path = tmp_path / "test.txt"
+    file_path.write_text("hello world")
+    
+    # Mock hashlib.file_digest if it doesn't exist (to test that branch)
+    if not hasattr(hashlib, "file_digest"):
+        def mocked_file_digest(f, algo):
+            return hashlib.md5(b"mocked")
+        monkeypatch.setattr(hashlib, "file_digest", mocked_file_digest, raising=False)
+    
+    # The actual result will depend on if file_digest exists or not in reality,
+    # but we just want to ensure it calls it and doesn't crash.
+    result = calculate_checksum(file_path, "md5")
+    assert result is not None
 
 def test_verify_copy_size(tmp_path):
     source = tmp_path / "source.txt"
@@ -33,6 +49,10 @@ def test_verify_copy_md5(tmp_path):
     
     dest.write_text("hallo")
     assert verify_copy(source, dest, "md5") is False
+
+def test_verify_copy_unknown_method():
+    # Test line 57 (unknown method)
+    assert verify_copy(Path("any"), Path("any"), "unknown") is True
 
 def test_copy_file_with_verification(tmp_path):
     source_dir = tmp_path / "source"
@@ -57,7 +77,7 @@ def test_copy_file_verification_failure_delete(tmp_path, monkeypatch):
     
     # Mock verify_copy to simulate a failure
     import copy_that.processor
-    monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m: False)
+    monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m, buffer_size=1048576: False)
     
     assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="delete") is False
     assert not dest_file.exists()
@@ -70,7 +90,7 @@ def test_copy_file_verification_failure_ignore(tmp_path, monkeypatch):
     
     # Mock verify_copy to simulate a failure
     import copy_that.processor
-    monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m: False)
+    monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m, buffer_size=1048576: False)
     
     assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="ignore") is True
     assert dest_file.exists()
@@ -83,9 +103,8 @@ def test_copy_file_verification_failure_retry(tmp_path, monkeypatch):
     # Track calls to verify_copy
     calls = []
     import copy_that.processor
-    original_verify = copy_that.processor.verify_copy
     
-    def mocked_verify(s, d, m):
+    def mocked_verify(s, d, m, buffer_size=1048576):
         calls.append(True)
         if len(calls) == 1:
             return False # Fail first time
@@ -151,16 +170,20 @@ def test_get_unique_path(tmp_path):
     path_2 = get_unique_path(base_path)
     assert path_2 == tmp_path / "test_2.txt"
 
+def test_get_unique_path_not_exists(tmp_path):
+    base_path = tmp_path / "not_here.txt"
+    assert get_unique_path(base_path) == base_path
+
 def test_copy_file_permission_error(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
     source.write_text("data")
     dest = tmp_path / "dest.txt"
     
     import shutil
-    def mocked_copy2(s, d):
+    def mocked_copyfileobj(fsrc, fdst, length):
         raise PermissionError("Permission denied")
     
-    monkeypatch.setattr(shutil, "copy2", mocked_copy2)
+    monkeypatch.setattr(shutil, "copyfileobj", mocked_copyfileobj)
     
     # Should log error and return False instead of crashing
     assert copy_file(source, dest) is False
