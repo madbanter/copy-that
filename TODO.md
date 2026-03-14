@@ -6,9 +6,9 @@
 - [ ] **Enhanced Dry Run**: Improve dry-run output to explicitly show skipped files and potential disk space issues.
 
 ## 2. Performance
-- [ ] **Optimized Discovery**: Consider using `os.scandir` instead of `pathlib.Path.rglob("*")` for faster discovery in large directory trees.
-- [ ] **Modern Checksumming**: Utilize `hashlib.file_digest` (Python 3.11+) for more efficient checksum calculations during verification.
-- [ ] **Buffered I/O**: Explore custom buffer sizes with `shutil.copyfileobj` to optimize performance across different storage types.
+- [x] **Optimized Discovery**: Consider using `os.scandir` instead of `pathlib.Path.rglob("*")` for faster discovery in large directory trees.
+- [x] **Modern Checksumming**: Utilize `hashlib.file_digest` (Python 3.11+) for more efficient checksum calculations during verification.
+- [x] **Buffered I/O**: Explore custom buffer sizes with `shutil.copyfileobj` to optimize performance across different storage types.
 
 ## 3. Functionality & Features
 - [ ] **Exif-based Organization**: Integrate an Exif library to use "Date Taken" metadata for more accurate media organization.

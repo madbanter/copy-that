@@ -52,6 +52,7 @@ uv run copy-that --config defaults.yaml --mode mirror --dry-run
 - `--verify-behavior`: Behavior on verification failure (`retry`, `ignore`, or `delete`).
 - `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check.
 - `--workers`: Maximum number of concurrent workers (threads).
+- `--buffer-size`: Buffer size in bytes for copying and hashing (default: 1,048,576 bytes / 1MB).
 - `--dry-run`: Show what would be copied without actually performing any operations.
 - `--verbose`, `-v`: Enable detailed logging (DEBUG level).
 
@@ -78,6 +79,7 @@ include_extensions:
 # Copy Behavior
 conflict_policy: "skip" # options: skip, overwrite, rename
 max_workers: null       # number of threads (null = system default, 1 = sequential)
+buffer_size: 1048576    # 1MB buffer size (can be tuned for performance)
 
 # Verification & Safety
 verification_method: "none" # options: none, size, md5, sha1
