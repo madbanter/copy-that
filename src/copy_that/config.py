@@ -16,6 +16,7 @@ class Config(BaseModel):
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry"
     pre_sync_space_check: bool = False
     max_workers: Optional[int] = None
+    buffer_size: int = Field(default=1024 * 1024, ge=1024, le=128 * 1024 * 1024)
 
     @field_validator("include_extensions", mode="before")
     @classmethod

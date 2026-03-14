@@ -70,7 +70,8 @@ def process_single_file(source_file: Path, config: Config) -> bool:
         dest_file, 
         config.conflict_policy, 
         config.verification_method,
-        config.verification_failure_behavior
+        config.verification_failure_behavior,
+        buffer_size=config.buffer_size
     ):
         logger.info(f"Copied {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
         return True
@@ -90,6 +91,7 @@ def sync(
     verify_behavior: Annotated[Optional[str], typer.Option("--verify-behavior", help="Verification failure behavior (retry, ignore, delete)")] = None,
     space_check: Annotated[Optional[bool], typer.Option("--space-check/--no-space-check", help="Enable/disable pre-sync space check")] = None,
     workers: Annotated[Optional[int], typer.Option("--workers", help="Max workers for concurrent copying")] = None,
+    buffer_size: Annotated[Optional[int], typer.Option("--buffer-size", help="Buffer size in bytes for copying and hashing")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be copied without actually copying")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose logging")] = False,
 ):
@@ -101,7 +103,6 @@ def sync(
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", force=True)
 
     # Merge CLI options into a single config object
-    # Mapping CLI names to Config model field names
     cli_overrides = {
         "source_directory": source,
         "destination_base": dest,
@@ -114,6 +115,7 @@ def sync(
         "verification_failure_behavior": verify_behavior,
         "pre_sync_space_check": space_check,
         "max_workers": workers,
+        "buffer_size": buffer_size,
     }
 
     try:

@@ -6,20 +6,31 @@ from typing import Optional, Literal
 
 logger = logging.getLogger(__name__)
 
-def calculate_checksum(path: Path, algorithm: str) -> str:
+def calculate_checksum(path: Path, algorithm: str, buffer_size: int = 1024 * 1024) -> str:
     """
     Calculate the checksum of a file using the specified algorithm (md5 or sha1).
+    Uses hashlib.file_digest in Python 3.11+ for performance.
     """
-    hash_func = hashlib.md5() if algorithm == "md5" else hashlib.sha1()
+    hash_func_name = algorithm.lower()
+    
+    # Python 3.11+ optimized way
+    if hasattr(hashlib, "file_digest"):
+        with open(path, "rb") as f:
+            digest = hashlib.file_digest(f, hash_func_name)
+            return digest.hexdigest()
+    
+    # Fallback for Python 3.10
+    hash_func = hashlib.md5() if hash_func_name == "md5" else hashlib.sha1()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
+        for chunk in iter(lambda: f.read(buffer_size), b""):
             hash_func.update(chunk)
     return hash_func.hexdigest()
 
 def verify_copy(
     source: Path, 
     destination: Path, 
-    method: Literal["none", "size", "md5", "sha1"]
+    method: Literal["none", "size", "md5", "sha1"],
+    buffer_size: int = 1024 * 1024
 ) -> bool:
     """
     Verify that the destination file matches the source file based on the selected method.
@@ -36,8 +47,8 @@ def verify_copy(
         return True
     
     if method in ("md5", "sha1"):
-        source_hash = calculate_checksum(source, method)
-        dest_hash = calculate_checksum(destination, method)
+        source_hash = calculate_checksum(source, method, buffer_size=buffer_size)
+        dest_hash = calculate_checksum(destination, method, buffer_size=buffer_size)
         if source_hash != dest_hash:
             logger.error(f"Verification failed: {method.upper()} mismatch for {destination.name}")
             return False
@@ -51,6 +62,7 @@ def copy_file(
     conflict_policy: str = "skip",
     verification_method: Literal["none", "size", "md5", "sha1"] = "none",
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry",
+    buffer_size: int = 1024 * 1024,
     _retry_count: int = 0
 ) -> bool:
     """
@@ -70,15 +82,21 @@ def copy_file(
     # Create parent directories if they don't exist
     destination.parent.mkdir(parents=True, exist_ok=True)
     
-    # shutil.copy2 preserves metadata (mtime, atime, flags, etc.)
     try:
-        shutil.copy2(source, destination)
+        # Optimized Buffered I/O using copyfileobj
+        with open(source, "rb") as fsrc:
+            with open(destination, "wb") as fdst:
+                shutil.copyfileobj(fsrc, fdst, length=buffer_size)
+        
+        # Preserve metadata (mtime, atime, flags, etc.)
+        shutil.copystat(source, destination)
+        
     except Exception as e:
         logger.error(f"Failed to copy {source} to {destination}: {e}")
         return False
 
     # Perform verification
-    if not verify_copy(source, destination, verification_method):
+    if not verify_copy(source, destination, verification_method, buffer_size=buffer_size):
         if verification_failure_behavior == "retry" and _retry_count < 1:
             logger.info(f"Retrying copy for {source.name}...")
             return copy_file(
@@ -87,6 +105,7 @@ def copy_file(
                 conflict_policy="overwrite", # Use overwrite during retry
                 verification_method=verification_method,
                 verification_failure_behavior=verification_failure_behavior,
+                buffer_size=buffer_size,
                 _retry_count=_retry_count + 1
             )
         elif verification_failure_behavior == "delete":
