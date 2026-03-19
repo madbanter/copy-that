@@ -1,8 +1,15 @@
 import pytest
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 from copy_that.main import perform_space_check, main
 from copy_that.config import Config
+
+@pytest.fixture(autouse=True)
+def mock_no_found_config():
+    """Ensure tests don't accidentally pick up local config.yaml files."""
+    with patch("copy_that.config.find_config", return_value=None):
+        yield
 
 def test_perform_space_check_sufficient(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
@@ -115,7 +122,6 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     import copy_that.main
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
-        "--config", "nonexistent-for-test.yaml",
         "--source", str(source_dir), 
         "--dest", str(dest_dir), 
         "--mode", "mirror",
@@ -165,6 +171,23 @@ def test_main_config_error(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Configuration error" in captured.err
 
+def test_main_corrupt_yaml(tmp_path, monkeypatch, capsys):
+    # Mock sys.argv to point to a corrupt YAML config
+    config_file = tmp_path / "corrupt_config.yaml"
+    config_file.write_text("source_directory: [unclosed list")
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--config", str(config_file)
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 1
+    
+    captured = capsys.readouterr()
+    assert "Configuration error: Error parsing configuration file" in captured.err
+
 def test_main_real_sync(tmp_path, monkeypatch, capsys):
     # Setup real source and destination
     source_dir = tmp_path / "src"
@@ -176,7 +199,6 @@ def test_main_real_sync(tmp_path, monkeypatch, capsys):
     # Run real sync using mirror mode
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
-        "--config", "nonexistent-for-test.yaml",
         "--source", str(source_dir), 
         "--dest", str(dest_dir),
         "--mode", "mirror",

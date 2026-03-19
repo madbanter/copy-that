@@ -1,6 +1,13 @@
 import pytest
 from pathlib import Path
-from copy_that.config import Config, load_config, merge_config
+from unittest.mock import patch
+from copy_that.config import Config, merge_config
+
+@pytest.fixture(autouse=True)
+def mock_no_found_config():
+    """Ensure tests don't accidentally pick up local config.yaml files."""
+    with patch("copy_that.config.find_config", return_value=None):
+        yield
 
 def test_config_expansion(tmp_path):
     source = tmp_path / "source"
@@ -16,30 +23,18 @@ def test_config_expansion(tmp_path):
     assert config.source_directory == source.resolve()
     assert config.destination_base == dest.resolve()
 
-def test_home_expansion():
-    # Pydantic should expand ~ to the actual home directory
+def test_home_expansion(tmp_path, monkeypatch):
+    # Mock HOME to ensure test is environment-agnostic
+    mock_home = tmp_path / "fake_home"
+    mock_home.mkdir()
+    monkeypatch.setenv("HOME", str(mock_home))
+    
     config = Config(
         source_directory=Path("~/src"),
         destination_base=Path("~/dest")
     )
-    assert config.source_directory == Path.home() / "src"
-    assert config.destination_base == Path.home() / "dest"
-
-def test_load_config_file(tmp_path):
-    config_file = tmp_path / "config.yaml"
-    config_file.write_text("""
-source_directory: "/tmp/src"
-destination_base: "/tmp/dest"
-conflict_policy: "rename"
-""")
-    
-    config = load_config(config_file)
-    assert config.source_directory.name == "src"
-    assert config.conflict_policy == "rename"
-
-def test_load_config_nonexistent(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        load_config(tmp_path / "nonexistent.yaml")
+    assert config.source_directory == mock_home / "src"
+    assert config.destination_base == mock_home / "dest"
 
 def test_extension_normalization():
     config = Config(
@@ -56,8 +51,10 @@ def test_merge_config_no_file(tmp_path):
     source.mkdir()
     dest.mkdir()
     
+    # Passing None for config_path triggers the search (which will find nothing)
+    # instead of passing a non-existent path which now raises an error.
     config = merge_config(
-        config_path=tmp_path / "nonexistent.yaml",
+        config_path=None,
         source_directory=source,
         destination_base=dest,
         organization_mode="mirror"
