@@ -9,7 +9,9 @@ The default workflow is optimized for photographers and media creators:
 3. **Copy**: Transfer files to the destination while preserving original filenames and all metadata.
 
 ## Features
+- **Automatic Configuration Search**: Automatically finds configuration files in standard locations.
 - **Flexible CLI**: Run with a config file, command-line overrides, or both.
+- **Shell Completions**: Supports `bash`, `zsh`, and `fish` for a better CLI experience.
 - **Flexible Organization Modes**: 
   - **Date Mode**: Groups files into subfolders based on creation or modification dates.
   - **Mirror Mode**: Preserves the original folder structure of the source directory.
@@ -20,13 +22,13 @@ The default workflow is optimized for photographers and media creators:
 - **Case-Insensitive Matching**: Automatically matches file extensions regardless of case (e.g., `.JPG` matches `.jpg`).
 - **Safety Checks**: Optional pre-sync disk space check to ensure the destination has enough room.
 - **Fail-Safe Behavior**: Configurable responses to verification failures (retry, ignore, or delete).
-- **YAML Configuration**: Easy-to-edit settings for persistent workflows.
+- **YAML Configuration**: Easy-to-edit settings for persistent workflows with support for relative paths.
 
 ## Usage
 Run the application using `uv`:
 
 ```bash
-# Basic run using config.yaml defaults
+# Basic run (searches for config.yaml automatically)
 uv run copy-that
 
 # Run with a specific configuration file
@@ -35,12 +37,19 @@ uv run copy-that --config my-custom-config.yaml
 # Override source and destination via CLI
 uv run copy-that --source /Volumes/SD_CARD --dest ~/Pictures/Imports
 
-# Combine config file with CLI overrides
-uv run copy-that --config defaults.yaml --mode mirror --dry-run
+# Combine found/provided config file with CLI overrides
+uv run copy-that --mode mirror --dry-run
+```
+
+### Shell Completions
+To install shell completions for your current shell:
+
+```bash
+uv run copy-that --install-completion
 ```
 
 ### CLI Options
-- `--config`, `-c`: Path to the YAML configuration file (default: `config.yaml`).
+- `--config`, `-c`: Path to the YAML configuration file. If not provided, it searches standard locations.
 - `--source`, `-s`: Source directory to scan for files.
 - `--dest`, `-d`: Destination base directory for organization.
 - `--mode`: Organization mode (`date` or `mirror`).
@@ -57,8 +66,17 @@ uv run copy-that --config defaults.yaml --mode mirror --dry-run
 - `--verbose`, `-v`: Enable detailed logging (DEBUG level).
 
 ## Configuration
-The application uses a `config.yaml` file to define persistent settings. CLI arguments always take precedence over values in the configuration file.
+The application automatically searches for a configuration file in the following order:
+1.  `./config.yaml` (or `.yml`)
+2.  `~/.config/copy-that/config.yaml`
+3.  `~/.copy-that.yaml`
 
+CLI arguments always take precedence over values in the configuration file.
+
+### Relative Paths
+Relative paths defined within a configuration file (e.g., `source_directory: ./input`) are resolved relative to the **location of the configuration file itself**, ensuring predictable behavior regardless of where you run the command from.
+
+### Example Config
 ```yaml
 # Source & Destination
 source_directory: "~/Pictures/Source"
@@ -66,7 +84,7 @@ destination_base: "~/Pictures/Organized"
 
 # Organization
 organization_mode: "date"  # options: date, mirror
-folder_format: "%Y/%m-%B/%d"  # used only in 'date' mode
+folder_format: "%Y%m%d"  # used only in 'date' mode
 date_source: "creation"    # options: creation, modification (used only in 'date' mode)
 
 # File Filters
@@ -91,3 +109,4 @@ pre_sync_space_check: false # if true, performs a pre-scan to estimate required 
 - **Data Integrity**: Focuses on copying rather than moving to ensure source data remains untouched.
 - **Efficiency**: Uses generators for file discovery and concurrency for high-speed transfers.
 - **Pydantic Validation**: Configuration is strictly validated at startup to prevent runtime errors.
+- **Robustness**: Gracefully handles permission errors and malformed configuration files.
