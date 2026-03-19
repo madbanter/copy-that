@@ -13,7 +13,7 @@ from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
 from copy_that.processor import copy_file
 
-app = typer.Typer(help="Copy and organize files from source to destination.", add_completion=False)
+app = typer.Typer(help="Copy and organize files from source to destination.")
 logger = logging.getLogger(__name__)
 
 def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
@@ -79,7 +79,7 @@ def process_single_file(source_file: Path, config: Config) -> bool:
 
 @app.command()
 def sync(
-    config_path: Annotated[Optional[Path], typer.Option("--config", "-c", help="Path to config file")] = Path("config.yaml"),
+    config_path: Annotated[Optional[Path], typer.Option("--config", "-c", help="Path to config file")] = None,
     source: Annotated[Optional[Path], typer.Option("--source", "-s", help="Source directory")] = None,
     dest: Annotated[Optional[Path], typer.Option("--dest", "-d", help="Destination base directory")] = None,
     mode: Annotated[Optional[str], typer.Option("--mode", help="Organization mode (date, mirror)")] = None,

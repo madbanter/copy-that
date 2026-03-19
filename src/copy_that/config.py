@@ -30,27 +30,69 @@ class Config(BaseModel):
     def expand_paths(cls, v: Path) -> Path:
         return v.expanduser().resolve()
 
-def load_config(config_path: Path) -> Config:
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+def find_config() -> Optional[Path]:
+    """
+    Search for configuration files in standard locations.
+    Order:
+    1. ./config.yaml or ./config.yml
+    2. ~/.config/copy-that/config.yaml
+    3. ~/.copy-that.yaml
+    """
+    search_paths = [
+        Path("config.yaml"),
+        Path("config.yml"),
+        Path("~/.config/copy-that/config.yaml"),
+        Path("~/.copy-that.yaml"),
+    ]
     
-    with open(config_path, "r") as f:
-        data = yaml.safe_load(f)
-    
-    return Config(**data)
+    for path in search_paths:
+        try:
+            resolved_path = path.expanduser().resolve()
+            if resolved_path.exists():
+                return resolved_path
+        except (OSError, PermissionError):
+            # If we can't access a directory in the search path, skip it
+            continue
+    return None
 
-def merge_config(config_path: Optional[Path], **kwargs: Any) -> Config:
+def merge_config(config_path: Optional[Path] = None, **kwargs: Any) -> Config:
     """
     Load config from YAML (if it exists) and merge with CLI overrides.
     CLI overrides (provided via kwargs) take precedence if they are not None.
+    
+    If config_path is provided but does not exist, raises FileNotFoundError.
+    If config_path is None, it searches standard locations via find_config().
+    
+    Relative paths in the YAML file are resolved relative to the configuration file's location.
     """
     data: Dict[str, Any] = {}
+    actual_config_path: Optional[Path] = None
+
+    if config_path:
+        if not config_path.exists():
+            raise FileNotFoundError(f"Explicitly provided configuration file not found: {config_path}")
+        actual_config_path = config_path.resolve()
+    else:
+        actual_config_path = find_config()
     
-    if config_path and config_path.exists():
-        with open(config_path, "r") as f:
-            yaml_data = yaml.safe_load(f)
-            if yaml_data:
-                data.update(yaml_data)
+    if actual_config_path:
+        try:
+            with open(actual_config_path, "r") as f:
+                yaml_data = yaml.safe_load(f)
+                if yaml_data:
+                    # Resolve relative paths in the YAML relative to the config file's directory
+                    config_dir = actual_config_path.parent
+                    for key in ["source_directory", "destination_base"]:
+                        if key in yaml_data and yaml_data[key]:
+                            path_val = Path(yaml_data[key])
+                            if not path_val.is_absolute():
+                                # expanduser handles ~ in the YAML file too
+                                yaml_data[key] = (config_dir / path_val.expanduser()).resolve()
+                    data.update(yaml_data)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Error parsing configuration file {actual_config_path}: {e}")
+        except OSError as e:
+            raise OSError(f"Could not read configuration file {actual_config_path}: {e}")
     
     # Update with CLI overrides only if they are not None
     for key, value in kwargs.items():
