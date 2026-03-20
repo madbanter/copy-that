@@ -1,49 +1,46 @@
 # CopyThat
 
-A high-performance, configurable Python utility designed to automate the transfer and organization of files from external drives (e.g., SD cards, external HDDs) to a structured destination directory.
+A high-performance utility designed to automate the transfer and organization of files from external drives (e.g., SD cards, external HDDs) to a structured destination.
 
 ## Core Workflow
-The default workflow is optimized for photographers and media creators:
+Optimized for photographers and media creators:
 1. **Scan**: Identify media files on a source drive.
-2. **Organize**: Determine the destination path based on the chosen mode.
-3. **Copy**: Transfer files to the destination while preserving original filenames and all metadata.
+2. **Organize**: Generate destination paths based on date or source structure.
+3. **Copy**: High-speed transfer with metadata preservation and optional verification.
 
-## Features
-- **Automatic Configuration Search**: Automatically finds configuration files in standard locations.
-- **Flexible CLI**: Run with a config file, command-line overrides, or both.
-- **Shell Completions**: Supports `bash`, `zsh`, and `fish` for a better CLI experience.
-- **Flexible Organization Modes**: 
-  - **Date Mode**: Groups files into subfolders based on creation or modification dates.
-  - **Mirror Mode**: Preserves the original folder structure of the source directory.
-- **High Performance**: Concurrent file copying using `ThreadPoolExecutor` (multi-threaded).
-- **Metadata Preservation**: Uses `shutil.copy2` to ensure file timestamps and permissions are maintained.
-- **Data Integrity**: Optional post-copy verification (Size, MD5, or SHA1 checksums).
-- **Intelligent Conflict Handling**: Configurable policies to skip, overwrite, or rename files when they exist at the destination.
-- **Case-Insensitive Matching**: Automatically matches file extensions regardless of case (e.g., `.JPG` matches `.jpg`).
-- **Safety Checks**: Optional pre-sync disk space check to ensure the destination has enough room.
-- **Fail-Safe Behavior**: Configurable responses to verification failures (retry, ignore, or delete).
-- **YAML Configuration**: Easy-to-edit settings for persistent workflows with support for relative paths.
+## Key Features
+
+### Smart Organization
+- **Date Mode**: Automatically groups files into subfolders based on creation or modification dates (e.g., `2024/03-March/20`).
+- **Mirror Mode**: Preserves your existing folder structure exactly as it is on the source.
+- **Case-Insensitive Filtering**: Broad support for extensions (e.g., `.JPG` and `.jpg` are handled identically).
+
+### Reliability & Safety
+- **Metadata Preservation**: Keeps your original file timestamps and permissions intact.
+- **Data Verification**: Optional post-copy checksumming (MD5, SHA1, or Size) to ensure data integrity.
+- **Safe Conflicts**: Configurable policies to skip, overwrite, or rename files if they already exist at the destination.
+- **Pre-flight Checks**: Optional disk space estimation and a comprehensive **Dry Run** mode to see results before any data is moved.
+
+### Modern CLI Experience
+- **Zero-Config Discovery**: Automatically searches for configuration in standard locations (`./config.yaml`, `~/.config/copy-that/`, etc.).
+- **Interactive Completions**: Full tab-completion support for `bash`, `zsh`, and `fish`.
+- **Hybrid Configuration**: Use a YAML file for defaults and override anything on-the-fly with CLI flags.
 
 ## Usage
-Run the application using `uv`:
 
 ```bash
-# Basic run (searches for config.yaml automatically)
+# Basic run (uses automatic configuration search)
 uv run copy-that
 
-# Run with a specific configuration file
-uv run copy-that --config my-custom-config.yaml
+# Custom source and destination with a dry run
+uv run copy-that --source /Volumes/SD_CARD --dest ~/Pictures/Imports --dry-run
 
-# Override source and destination via CLI
-uv run copy-that --source /Volumes/SD_CARD --dest ~/Pictures/Imports
-
-# Combine found/provided config file with CLI overrides
-uv run copy-that --mode mirror --dry-run
+# Override organization mode
+uv run copy-that --mode mirror
 ```
 
-### Shell Completions
+### Installation & Setup
 To install shell completions for your current shell:
-
 ```bash
 uv run copy-that --install-completion
 ```
@@ -61,52 +58,31 @@ uv run copy-that --install-completion
 - `--verify-behavior`: Behavior on verification failure (`retry`, `ignore`, or `delete`).
 - `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check.
 - `--workers`: Maximum number of concurrent workers (threads).
-- `--buffer-size`: Buffer size in bytes for copying and hashing (default: 1,048,576 bytes / 1MB).
+- `--buffer-size`: Buffer size in bytes for copying and hashing (default: 1MB).
 - `--dry-run`: Show what would be copied without actually performing any operations.
 - `--verbose`, `-v`: Enable detailed logging (DEBUG level).
 
 ## Configuration
-The application automatically searches for a configuration file in the following order:
-1.  `./config.yaml` (or `.yml`)
-2.  `~/.config/copy-that/config.yaml`
-3.  `~/.copy-that.yaml`
+CopyThat looks for settings in:
+1. `./config.yaml`
+2. `~/.config/copy-that/config.yaml`
+3. `~/.copy-that.yaml`
 
-CLI arguments always take precedence over values in the configuration file.
+Relative paths within these files (e.g., `source_directory: ./photos`) are resolved relative to the **config file's location**, ensuring your setup works from any directory.
 
-### Relative Paths
-Relative paths defined within a configuration file (e.g., `source_directory: ./input`) are resolved relative to the **location of the configuration file itself**, ensuring predictable behavior regardless of where you run the command from.
-
-### Example Config
 ```yaml
-# Source & Destination
+# Example config.yaml
 source_directory: "~/Pictures/Source"
 destination_base: "~/Pictures/Organized"
-
-# Organization
-organization_mode: "date"  # options: date, mirror
-folder_format: "%Y%m%d"  # used only in 'date' mode
-date_source: "creation"    # options: creation, modification (used only in 'date' mode)
-
-# File Filters
-include_extensions:
-  - .jpg
-  - .cr3
-  - .mp4
-  - .xmp
-
-# Copy Behavior
-conflict_policy: "skip" # options: skip, overwrite, rename
-max_workers: null       # number of threads (null = system default, 1 = sequential)
-buffer_size: 1048576    # 1MB buffer size (can be tuned for performance)
-
-# Verification & Safety
-verification_method: "none" # options: none, size, md5, sha1
-verification_failure_behavior: "retry" # options: retry, ignore, delete
-pre_sync_space_check: false # if true, performs a pre-scan to estimate required space
+organization_mode: "date"
+folder_format: "%Y%m%d"
+include_extensions: [.jpg, .cr3, .mp4]
+conflict_policy: "skip"
+verification_method: "md5"
 ```
 
-## Security & Principles
-- **Data Integrity**: Focuses on copying rather than moving to ensure source data remains untouched.
-- **Efficiency**: Uses generators for file discovery and concurrency for high-speed transfers.
-- **Pydantic Validation**: Configuration is strictly validated at startup to prevent runtime errors.
-- **Robustness**: Gracefully handles permission errors and malformed configuration files.
+## Technical Principles
+- **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types.
+- **Data-First**: Always copies rather than moves, ensuring your source media remains untouched.
+- **Strict Validation**: Utilizes type-safe configuration parsing to catch errors early.
+- **Robust Error Handling**: Gracefully handles disk disconnection, permission issues, and corrupt files.
