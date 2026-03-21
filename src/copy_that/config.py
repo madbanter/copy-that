@@ -1,8 +1,10 @@
 from pathlib import Path
-from typing import List, Literal, Optional
-import yaml
-from pydantic import BaseModel, Field, field_validator
 from typing import List, Literal, Optional, Any, Dict
+import yaml
+import logging
+from pydantic import BaseModel, Field, field_validator, ValidationError
+
+logger = logging.getLogger(__name__)
 
 class Config(BaseModel):
     source_directory: Path
@@ -76,6 +78,7 @@ def merge_config(config_path: Optional[Path] = None, **kwargs: Any) -> Config:
         actual_config_path = find_config()
     
     if actual_config_path:
+        logger.info(f"Loading configuration from {actual_config_path}")
         try:
             with open(actual_config_path, "r") as f:
                 yaml_data = yaml.safe_load(f)
@@ -93,10 +96,26 @@ def merge_config(config_path: Optional[Path] = None, **kwargs: Any) -> Config:
             raise ValueError(f"Error parsing configuration file {actual_config_path}: {e}")
         except OSError as e:
             raise OSError(f"Could not read configuration file {actual_config_path}: {e}")
+    else:
+        logger.debug("No configuration file found in standard locations.")
     
     # Update with CLI overrides only if they are not None
     for key, value in kwargs.items():
         if value is not None:
             data[key] = value
             
-    return Config(**data)
+    try:
+        return Config(**data)
+    except ValidationError as e:
+        missing_fields = [str(err["loc"][0]) for err in e.errors() if err["type"] == "missing"]
+        if missing_fields:
+            if not actual_config_path:
+                raise ValueError(
+                    f"No configuration file found and required arguments are missing: {', '.join(missing_fields)}. "
+                    "Please provide a config file or use CLI options (--source, --dest)."
+                ) from e
+            else:
+                raise ValueError(
+                    f"Configuration from {actual_config_path} is missing required fields: {', '.join(missing_fields)}"
+                ) from e
+        raise ValueError(f"Invalid configuration: {e}") from e
