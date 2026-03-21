@@ -133,3 +133,24 @@ destination_base: "../output"
     assert config.source_directory == (config_dir / "input").resolve()
     # ../output -> tmp_path/output
     assert config.destination_base == (tmp_path / "output").resolve()
+
+def test_merge_config_missing_required_fields_no_file():
+    """Test error message when no config file exists and required fields are missing."""
+    with patch("copy_that.config.find_config", return_value=None):
+        with pytest.raises(ValueError, match="No configuration file found and required arguments are missing: source_directory, destination_base"):
+            merge_config()
+
+def test_merge_config_incomplete_file(tmp_path):
+    """Test error message when a config file is found but is missing required fields."""
+    incomplete_config = tmp_path / "config.yaml"
+    incomplete_config.write_text("source_directory: /tmp/src") # Missing destination_base
+    
+    with patch("copy_that.config.find_config", return_value=incomplete_config):
+        with pytest.raises(ValueError, match=f"Configuration from {incomplete_config.resolve()} is missing required fields: destination_base"):
+            merge_config()
+
+def test_merge_config_invalid_value():
+    """Test error message for invalid configuration value (not just missing)."""
+    # max_workers should be an integer
+    with pytest.raises(ValueError, match="Invalid configuration:"):
+        merge_config(source_directory=Path("/tmp/src"), destination_base=Path("/tmp/dest"), max_workers="lots")
