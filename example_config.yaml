@@ -1,0 +1,72 @@
+# Example configuration for CopyThat
+# Rename this file to config.yaml to use it as your default configuration.
+
+# --- Core Paths ---
+# The directory to scan for source files.
+source_directory: "~/Pictures/Source"
+
+# The base directory where organized files will be copied.
+destination_base: "~/Pictures/Organized"
+
+# --- Organization Settings ---
+# Organization mode: 
+#   - 'date': Groups files into subfolders based on a date.
+#   - 'mirror': Preserves the relative folder structure from the source.
+organization_mode: "date"
+
+# Folder format for 'date' mode (strftime format).
+# e.g., '%Y%m%d' -> 20230101
+# e.g., '%Y/%m-%B/%d' -> 2023/01-January/01
+folder_format: "%Y%m%d"
+
+# Source for file dates:
+#   - 'creation': Uses file birth time (macOS) or modification time fallback.
+#   - 'modification': Uses file modification time.
+#   - 'filename': Extracts the date from the filename itself.
+date_source: "creation"
+
+# Date format pattern if 'date_source' is set to 'filename'.
+# This must match the beginning of your filename.
+# e.g., '2015-12-26 15.13.52.jpg' matches '%Y-%m-%d %H.%M.%S'
+filename_date_format: "%Y-%m-%d %H.%M.%S"
+
+# --- Filtering ---
+# List of file extensions to include (case-insensitive).
+include_extensions:
+  - .jpg
+  - .jpeg
+  - .cr3
+  - .arw
+  - .dng
+  - .mp4
+  - .xmp
+
+# --- Conflict & Reliability ---
+# What to do if a file already exists at the destination:
+#   - 'skip': Leave the existing file alone.
+#   - 'overwrite': Replace the existing file.
+#   - 'rename': Copy with a numeric suffix (e.g., photo_1.jpg).
+conflict_policy: "skip"
+
+# Optional verification method after copying:
+#   - 'none': No post-copy check.
+#   - 'size': Verify file sizes match.
+#   - 'md5' or 'sha1': Verify cryptographic checksums match.
+verification_method: "none"
+
+# Behavior if verification fails:
+#   - 'retry': Attempt to copy the file one more time.
+#   - 'ignore': Log the error but keep the destination file.
+#   - 'delete': Remove the destination file if verification fails.
+verification_failure_behavior: "retry"
+
+# If true, performs a pre-scan to estimate required space vs available disk space.
+pre_sync_space_check: false
+
+# --- Performance ---
+# Number of threads for concurrent copying.
+# null = system default (number of CPUs), 1 = sequential.
+max_workers: null
+
+# Buffer size in bytes for copying and hashing (default: 1MB).
+buffer_size: 1048576
