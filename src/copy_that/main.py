@@ -30,7 +30,8 @@ def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
             config.destination_base,
             config.folder_format,
             config.organization_mode,
-            config.date_source
+            config.date_source,
+            config.filename_date_format
         )
         
         if config.conflict_policy == "skip" and dest_file.exists():
@@ -62,7 +63,8 @@ def process_single_file(source_file: Path, config: Config) -> bool:
         config.destination_base,
         config.folder_format,
         config.organization_mode,
-        config.date_source
+        config.date_source,
+        config.filename_date_format
     )
 
     if copy_file(
@@ -84,7 +86,8 @@ def sync(
     dest: Annotated[Optional[Path], typer.Option("--dest", "-d", help="Destination base directory")] = None,
     mode: Annotated[Optional[str], typer.Option("--mode", help="Organization mode (date, mirror)")] = None,
     format: Annotated[Optional[str], typer.Option("--format", help="Folder format for date mode")] = None,
-    date_source: Annotated[Optional[str], typer.Option("--date-source", help="Date source (creation, modification)")] = None,
+    date_source: Annotated[Optional[str], typer.Option("--date-source", help="Date source (creation, modification, filename)")] = None,
+    filename_date_format: Annotated[Optional[str], typer.Option("--filename-date-format", help="Date format in filename (for date-source=filename)")] = None,
     extensions: Annotated[Optional[List[str]], typer.Option("--ext", help="Include extensions (can be repeated)")] = None,
     conflict: Annotated[Optional[str], typer.Option("--conflict", help="Conflict policy (skip, overwrite, rename)")] = None,
     verify: Annotated[Optional[str], typer.Option("--verify", help="Verification method (none, size, md5, sha1)")] = None,
@@ -109,6 +112,7 @@ def sync(
         "organization_mode": mode,
         "folder_format": format,
         "date_source": date_source,
+        "filename_date_format": filename_date_format,
         "include_extensions": extensions,
         "conflict_policy": conflict,
         "verification_method": verify,
@@ -150,7 +154,8 @@ def sync(
                 config.destination_base, 
                 config.folder_format,
                 config.organization_mode,
-                config.date_source
+                config.date_source,
+                config.filename_date_format
             )
             logger.info(f"[DRY RUN] Would copy {source_file.name} to {dest_file.relative_to(config.destination_base.parent)}")
             files_processed += 1

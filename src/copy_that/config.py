@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, Any, Dict
 import yaml
 import logging
+import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,8 @@ class Config(BaseModel):
     destination_base: Path
     folder_format: str = "%Y%m%d"
     organization_mode: Literal["date", "mirror"] = "date"
-    date_source: Literal["creation", "modification"] = "creation"
+    date_source: Literal["creation", "modification", "filename"] = "creation"
+    filename_date_format: str = "%Y-%m-%d %H.%M.%S"
     include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".jpeg", ".cr3", ".arw", ".dng", ".mp4", ".xmp"])
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
     verification_method: Literal["none", "size", "md5", "sha1"] = "none"
@@ -31,6 +33,19 @@ class Config(BaseModel):
     @classmethod
     def expand_paths(cls, v: Path) -> Path:
         return v.expanduser().resolve()
+
+    @field_validator("filename_date_format")
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        try:
+            # Test it with a sample date. strftime is often too lenient.
+            # strptime is stricter because it must be a valid format that can parse back.
+            now = datetime.datetime.now().replace(microsecond=0)
+            s = now.strftime(v)
+            datetime.datetime.strptime(s, v)
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid date format string: {v}. Error: {e}")
 
 def find_config() -> Optional[Path]:
     """
