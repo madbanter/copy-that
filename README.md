@@ -24,30 +24,40 @@ Optimized for photographers and media creators:
 ### Modern CLI Experience
 - **Zero-Config Discovery**: Automatically searches for configuration in standard locations (`./config.yaml`, `~/.config/copy-that/`, etc.).
 - **Interactive Completions**: Full tab-completion support for `bash`, `zsh`, and `fish`.
-- **Hybrid Configuration**: Use a YAML file for defaults and override anything on-the-fly with CLI flags.
+- **Global Accessibility**: Install once and run `copy-that` from any directory.
+
+## Installation
+
+```bash
+# Install globally from the project directory (Editable mode)
+uv tool install --editable .
+
+# Ensure your PATH is updated (follow on-screen instructions or restart terminal)
+uv tool update-shell
+```
 
 ## Usage
 
 ```bash
-# Basic run (uses automatic configuration search)
-uv run copy-that
+# Basic run from any directory (uses automatic configuration search)
+copy-that
 
-# Custom source and destination with a dry run
-uv run copy-that --source /Volumes/SD_CARD --dest ~/Pictures/Imports --dry-run
+# Use the current directory as source
+copy-that --source . --dest ~/Pictures/Imports --dry-run
 
 # Override organization mode
-uv run copy-that --mode mirror
+copy-that --mode mirror
 ```
 
-### Installation & Setup
+### Shell Completions
 To install shell completions for your current shell:
 ```bash
-uv run copy-that --install-completion
+copy-that --install-completion
 ```
 
 ### CLI Options
 - `--config`, `-c`: Path to the YAML configuration file. If not provided, it searches standard locations.
-- `--source`, `-s`: Source directory to scan for files.
+- `--source`, `-s`: Source directory to scan for files. Supports `.` for the current directory.
 - `--dest`, `-d`: Destination base directory for organization.
 - `--mode`: Organization mode (`date` or `mirror`).
 - `--format`: Folder format string for `date` mode (e.g., `%Y/%m/%d`).
@@ -71,18 +81,7 @@ CopyThat looks for settings in:
 
 Relative paths within these files (e.g., `source_directory: ./photos`) are resolved relative to the **config file's location**, ensuring your setup works from any directory.
 
-```yaml
-# Example config.yaml
-source_directory: "~/Pictures/Source"
-destination_base: "~/Pictures/Organized"
-organization_mode: "date"
-folder_format: "%Y%m%d"
-date_source: "filename"
-filename_date_format: "%Y-%m-%d %H.%M.%S"
-include_extensions: [.jpg, .cr3, .mp4]
-conflict_policy: "skip"
-verification_method: "md5"
-```
+See `example_config.yaml` for a full list of supported settings and descriptions.
 
 ## Technical Principles
 - **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types.
