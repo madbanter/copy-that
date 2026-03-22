@@ -1,5 +1,7 @@
 import datetime
+import os
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 from copy_that.organizer import generate_destination_path, get_file_date
 
 def test_path_structure_date(tmp_path):
@@ -87,28 +89,30 @@ def test_path_structure_mirror_root(tmp_path):
     expected = dest_base / "root_file.jpg"
     assert result == expected
 
-def test_get_file_date_creation_fallback(tmp_path, monkeypatch):
+def test_get_file_date_creation_fallback(tmp_path):
     source = tmp_path / "test.txt"
     source.write_text("data")
     
-    # Simulate a system without st_birthtime (like most Linux systems)
-    import os
+    # Use a fixed integer timestamp to avoid microsecond comparison issues
+    fixed_timestamp = 1600000000.0
+    
+    # Create a mock that behaves like stat_result but lacks st_birthtime
+    mock_stat_result = MagicMock()
+    mock_stat_result.st_mtime = fixed_timestamp
+    # Explicitly ensure st_birthtime access raises AttributeError
+    del mock_stat_result.st_birthtime
+    
+    # Mock Path.stat but only for the specific source path
     original_stat = Path.stat
-    
-    class MockStat:
-        def __init__(self, st_mtime):
-            self.st_mtime = st_mtime
-            # No st_birthtime attribute here
-    
-    # We monkeypatch the stat call on the Path object
-    # Actually, it's easier to mock the get_file_date internal try/except
-    # But let's mock the stat result instead.
-    mtime = source.stat().st_mtime
-    monkeypatch.setattr(Path, "stat", lambda self: MockStat(mtime))
-    
-    # Should fallback to mtime
-    date = get_file_date(source, source="creation")
-    assert date == datetime.datetime.fromtimestamp(mtime)
+    def side_effect(path_instance):
+        if str(path_instance) == str(source):
+            return mock_stat_result
+        return original_stat(path_instance)
+
+    with patch.object(Path, "stat", autospec=True, side_effect=side_effect):
+        # Should fallback to mtime
+        date = get_file_date(source, source="creation")
+        assert date == datetime.datetime.fromtimestamp(fixed_timestamp)
 
 def test_get_file_date_modification(tmp_path):
     source = tmp_path / "test.txt"
@@ -117,3 +121,100 @@ def test_get_file_date_modification(tmp_path):
     mtime = source.stat().st_mtime
     date = get_file_date(source, source="modification")
     assert date == datetime.datetime.fromtimestamp(mtime)
+
+def test_get_file_date_filename(tmp_path):
+    # Test successful parsing
+    source = tmp_path / "2015-12-26 15.13.52-1.jpg"
+    source.write_text("data")
+    
+    date = get_file_date(source, source="filename", filename_date_format="%Y-%m-%d %H.%M.%S")
+    assert date == datetime.datetime(2015, 12, 26, 15, 13, 52)
+    
+    # Test different format
+    source2 = tmp_path / "IMG_20230101_120000.jpg"
+    source2.write_text("data")
+    date2 = get_file_date(source2, source="filename", filename_date_format="IMG_%Y%m%d_%H%M%S")
+    assert date2 == datetime.datetime(2023, 1, 1, 12, 0, 0)
+
+def test_get_file_date_filename_fallback(tmp_path):
+    # Filename doesn't match format
+    source = tmp_path / "not_a_date.jpg"
+    source.write_text("data")
+    
+    fixed_timestamp = 1600000000.0
+    mock_stat_result = MagicMock()
+    mock_stat_result.st_mtime = fixed_timestamp
+    # Include st_birthtime to simulate a system that has it but we fall back from filename
+    mock_stat_result.st_birthtime = fixed_timestamp + 100 
+
+    original_stat = Path.stat
+    def side_effect(path_instance):
+        if str(path_instance) == str(source):
+            return mock_stat_result
+        return original_stat(path_instance)
+
+    with patch.object(Path, "stat", autospec=True, side_effect=side_effect):
+        # Should fallback to creation (which we mocked to fixed_timestamp + 100)
+        date = get_file_date(source, source="filename", filename_date_format="%Y%m%d")
+        assert date == datetime.datetime.fromtimestamp(fixed_timestamp + 100)
+
+def test_get_file_date_filename_short(tmp_path):
+    # Filename stem is shorter than expected format length
+    source = tmp_path / "2023.jpg"
+    source.write_text("data")
+    
+    fixed_timestamp = 1600000000.0
+    mock_stat_result = MagicMock()
+    mock_stat_result.st_mtime = fixed_timestamp
+    del mock_stat_result.st_birthtime # No birthtime fallback
+
+    original_stat = Path.stat
+    def side_effect(path_instance):
+        if str(path_instance) == str(source):
+            return mock_stat_result
+        return original_stat(path_instance)
+
+    with patch.object(Path, "stat", autospec=True, side_effect=side_effect):
+        date = get_file_date(source, source="filename", filename_date_format="%Y%m%d")
+        assert date == datetime.datetime.fromtimestamp(fixed_timestamp)
+
+def test_get_file_date_filename_invalid_type(tmp_path):
+    source = tmp_path / "20230101.jpg"
+    source.write_text("data")
+    
+    fixed_timestamp = 1600000000.0
+    mock_stat_result = MagicMock()
+    mock_stat_result.st_mtime = fixed_timestamp
+    del mock_stat_result.st_birthtime
+
+    original_stat = Path.stat
+    def side_effect(path_instance):
+        if str(path_instance) == str(source):
+            return mock_stat_result
+        return original_stat(path_instance)
+
+    with patch.object(Path, "stat", autospec=True, side_effect=side_effect):
+        # Force a fallback by passing None which causes TypeError in length check
+        date = get_file_date(source, source="filename", filename_date_format=None)
+        assert date == datetime.datetime.fromtimestamp(fixed_timestamp)
+
+def test_generate_destination_path_filename(tmp_path):
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    source = source_root / "2015-12-26 15.13.52-1.jpg"
+    source.write_text("data")
+    
+    dest_base = tmp_path / "dest"
+    folder_format = "%Y/%m/%d"
+    
+    result = generate_destination_path(
+        source,
+        source_root,
+        dest_base,
+        folder_format,
+        mode="date",
+        date_source="filename",
+        filename_date_format="%Y-%m-%d %H.%M.%S"
+    )
+    
+    assert result == dest_base / "2015/12/26" / "2015-12-26 15.13.52-1.jpg"

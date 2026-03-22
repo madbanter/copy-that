@@ -242,3 +242,87 @@ def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Performing pre-sync disk space check" in captured.err
     assert "Possible insufficient disk space!" in captured.err
+
+def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    filename = "2023-01-01 12.00.00.jpg"
+    (source_dir / filename).write_text("data")
+    
+    dest_dir = tmp_path / "dest"
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--date-source", "filename",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    # Default folder_format is %Y%m%d. Logger output includes 'dest/' prefix because it's relative to dest.parent
+    assert f"[DRY RUN] Would copy {filename} to dest/20230101/{filename}" in captured.err
+
+def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    filename = "2023-01-01 12.00.00.jpg"
+    (source_dir / filename).write_text("data")
+    
+    dest_dir = tmp_path / "dest"
+    
+    # Mock disk_usage to return 0 space to trigger warning
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(100, 100, 0))
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--date-source", "filename",
+        "--space-check",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert "Performing pre-sync disk space check" in captured.err
+    assert "Possible insufficient disk space!" in captured.err
+
+def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    # Create file with date in name
+    filename = "2015-12-26 15.13.52-1.jpg"
+    (source_dir / filename).write_text("data")
+    
+    dest_dir = tmp_path / "dest"
+    
+    # Run sync with filename date source
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--source", str(source_dir), 
+        "--dest", str(dest_dir),
+        "--date-source", "filename",
+        "--filename-date-format", "%Y-%m-%d %H.%M.%S",
+        "--format", "%Y-%m-%d",
+        "--no-space-check"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    # Verify file was copied to the correct date-based folder
+    expected_file = dest_dir / "2015-12-26" / filename
+    assert expected_file.exists()
+    assert expected_file.read_text() == "data"
+    
+    captured = capsys.readouterr()
+    assert "Sync complete" in captured.err

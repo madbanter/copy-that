@@ -154,3 +154,13 @@ def test_merge_config_invalid_value():
     # max_workers should be an integer
     with pytest.raises(ValueError, match="Invalid configuration:"):
         merge_config(source_directory=Path("/tmp/src"), destination_base=Path("/tmp/dest"), max_workers="lots")
+
+def test_merge_config_invalid_filename_date_format():
+    """Test validation of filename_date_format."""
+    # %v is invalid in strptime. Match the core error message regardless of formatting.
+    with pytest.raises(ValueError, match="Invalid date format string"):
+        merge_config(
+            source_directory=Path("/tmp/src"), 
+            destination_base=Path("/tmp/dest"), 
+            filename_date_format="%v"
+        )
