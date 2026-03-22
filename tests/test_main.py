@@ -108,7 +108,7 @@ destination_base: {dest_dir}
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    assert "[DRY RUN] Would copy" in captured.err
+    assert "[DRY RUN] Copy" in captured.err
     assert not dest_dir.exists()
 
 def test_cli_overrides(tmp_path, monkeypatch, capsys):
@@ -136,7 +136,7 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     assert f"Source: {source_dir.resolve()}" in captured.err
     assert f"Destination: {dest_dir.resolve()}" in captured.err
     assert "Mode: mirror" in captured.err
-    assert "[DRY RUN] Would copy" in captured.err
+    assert "[DRY RUN] Copy" in captured.err
 
 def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
     # Mock sys.argv to point to a non-existent source
@@ -265,7 +265,7 @@ def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
     
     captured = capsys.readouterr()
     # Default folder_format is %Y%m%d. Logger output includes 'dest/' prefix because it's relative to dest.parent
-    assert f"[DRY RUN] Would copy {filename} to dest/20230101/{filename}" in captured.err
+    assert f"[DRY RUN] Copy: {filename} -> dest/20230101/{filename}" in captured.err
 
 def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
@@ -326,3 +326,40 @@ def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
     
     captured = capsys.readouterr()
     assert "Sync complete" in captured.err
+
+def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("source data")
+    
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    # Create an identical file in destination
+    (dest_dir / "20260321").mkdir()
+    (dest_dir / "20260321" / "test.jpg").write_text("source data")
+    
+    # Run dry run with verification
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--verify", "size",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Skip (already verified)" in captured.err
+
+    # Now modify the destination to fail verification
+    (dest_dir / "20260321" / "test.jpg").write_text("different")
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Overwrite (failed verification)" in captured.err
