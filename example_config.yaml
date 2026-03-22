@@ -43,7 +43,10 @@ include_extensions:
 
 # --- Conflict & Reliability ---
 # What to do if a file already exists at the destination:
-#   - 'skip': Leave the existing file alone.
+#   - 'skip': Leave the existing file alone. 
+#            NOTE: If a 'verification_method' is enabled, it will verify the 
+#            existing file first and only skip if it matches the source. 
+#            Otherwise, it will re-copy (overwrite) the file.
 #   - 'overwrite': Replace the existing file.
 #   - 'rename': Copy with a numeric suffix (e.g., photo_1.jpg).
 conflict_policy: "skip"
