@@ -59,17 +59,17 @@ copy-that --install-completion
 - `--config`, `-c`: Path to the YAML configuration file. If not provided, it searches standard locations.
 - `--source`, `-s`: Source directory to scan for files. Supports `.` for the current directory.
 - `--dest`, `-d`: Destination base directory for organization.
-- `--mode`: Organization mode (`date` or `mirror`).
-- `--format`: Folder format string for `date` mode (e.g., `%Y/%m/%d`).
-- `--date-source`: Source for date metadata (`creation`, `modification`, or `filename`).
-- `--filename-date-format`: Date format pattern if `date-source` is set to `filename` (default: `%Y-%m-%d %H.%M.%S`).
-- `--ext`: Include specific file extensions (can be repeated, e.g., `--ext .jpg --ext .arw`).
-- `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`).
-- `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`).
-- `--verify-behavior`: Behavior on verification failure (`retry`, `ignore`, or `delete`).
-- `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check.
-- `--workers`: Maximum number of concurrent workers (threads).
-- `--buffer-size`: Buffer size in bytes for copying and hashing (default: 1MB).
+- `--mode`: Organization mode (`date` or `mirror`). (Default: `date`)
+- `--format`: Folder format string for `date` mode (e.g., `%Y/%m/%d`). (Default: `%Y%m%d`)
+- `--date-source`: Source for date metadata (`creation`, `modification`, or `filename`). (Default: `creation`)
+- `--filename-date-format`: Date format pattern if `date-source` is set to `filename`. (Default: `%Y-%m-%d %H.%M.%S`)
+- `--ext`: Include specific file extensions (can be repeated). (Default: `.jpg, .jpeg, .cr3, .arw, .dng, .mp4, .xmp`)
+- `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`). (Default: `skip`)
+- `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`). (Default: `none`)
+- `--verify-behavior`: Behavior on verification failure (`retry`, `ignore`, or `delete`). (Default: `retry`)
+- `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check. (Default: disabled)
+- `--workers`: Maximum number of concurrent workers (threads). (Default: auto-detected based on CPUs)
+- `--buffer-size`: Buffer size in bytes for copying and hashing. (Default: `1048576` / 1MB)
 - `--dry-run`: Show what would be copied without actually performing any operations.
 - `--verbose`, `-v`: Enable detailed logging (DEBUG level).
 
