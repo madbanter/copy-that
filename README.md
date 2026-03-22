@@ -11,7 +11,7 @@ Optimized for photographers and media creators:
 ## Key Features
 
 ### Smart Organization
-- **Date Mode**: Automatically groups files into subfolders based on creation or modification dates (e.g., `2024/03-March/20`).
+- **Date Mode**: Automatically groups files into subfolders based on creation, modification, or **dates extracted from filenames** (e.g., `2024/03-March/20`).
 - **Mirror Mode**: Preserves your existing folder structure exactly as it is on the source.
 - **Case-Insensitive Filtering**: Broad support for extensions (e.g., `.JPG` and `.jpg` are handled identically).
 
@@ -51,7 +51,8 @@ uv run copy-that --install-completion
 - `--dest`, `-d`: Destination base directory for organization.
 - `--mode`: Organization mode (`date` or `mirror`).
 - `--format`: Folder format string for `date` mode (e.g., `%Y/%m/%d`).
-- `--date-source`: Source for date metadata (`creation` or `modification`).
+- `--date-source`: Source for date metadata (`creation`, `modification`, or `filename`).
+- `--filename-date-format`: Date format pattern if `date-source` is set to `filename` (default: `%Y-%m-%d %H.%M.%S`).
 - `--ext`: Include specific file extensions (can be repeated, e.g., `--ext .jpg --ext .arw`).
 - `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`).
 - `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`).
@@ -76,6 +77,8 @@ source_directory: "~/Pictures/Source"
 destination_base: "~/Pictures/Organized"
 organization_mode: "date"
 folder_format: "%Y%m%d"
+date_source: "filename"
+filename_date_format: "%Y-%m-%d %H.%M.%S"
 include_extensions: [.jpg, .cr3, .mp4]
 conflict_policy: "skip"
 verification_method: "md5"
