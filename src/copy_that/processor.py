@@ -71,8 +71,17 @@ def copy_file(
     """
     if destination.exists():
         if conflict_policy == "skip":
-            logger.info(f"Skipping existing file: {destination.name}")
-            return False
+            if verification_method == "none":
+                logger.info(f"Skipping existing file: {destination.name}")
+                return False
+            else:
+                # Integrity-aware skip: Verify the existing file first
+                if verify_copy(source, destination, verification_method, buffer_size=buffer_size):
+                    logger.info(f"Skipping (already verified): {destination.name}")
+                    return False
+                else:
+                    logger.warning(f"Existing file {destination.name} failed verification. Re-copying...")
+                    # Proceed to copy (overwrite)
         elif conflict_policy == "overwrite":
             logger.info(f"Overwriting file: {destination.name}")
         elif conflict_policy == "rename":

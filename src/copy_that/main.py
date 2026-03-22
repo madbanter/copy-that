@@ -147,6 +147,7 @@ def sync(
     files_copied = 0
 
     if dry_run:
+        from copy_that.processor import verify_copy, get_unique_path
         for source_file in files_to_sync:
             dest_file = generate_destination_path(
                 source_file, 
@@ -157,7 +158,24 @@ def sync(
                 config.date_source,
                 config.filename_date_format
             )
-            logger.info(f"[DRY RUN] Would copy {source_file.name} to {dest_file.relative_to(config.destination_base.parent)}")
+            
+            action = "copy"
+            if dest_file.exists():
+                if config.conflict_policy == "skip":
+                    if config.verification_method == "none":
+                        action = "skip (exists)"
+                    else:
+                        if verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size):
+                            action = "skip (already verified)"
+                        else:
+                            action = "overwrite (failed verification)"
+                elif config.conflict_policy == "overwrite":
+                    action = "overwrite"
+                elif config.conflict_policy == "rename":
+                    unique_dest = get_unique_path(dest_file)
+                    action = f"rename to {unique_dest.name}"
+            
+            logger.info(f"[DRY RUN] {action.capitalize()}: {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
             files_processed += 1
         logger.info(f"Dry run complete. Would process {files_processed} files.")
     else:
