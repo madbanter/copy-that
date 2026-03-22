@@ -363,3 +363,71 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     
     captured = capsys.readouterr()
     assert "[DRY RUN] Overwrite (failed verification)" in captured.err
+
+def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    (dest_dir / "20260321").mkdir()
+    (dest_dir / "20260321" / "test.jpg").write_text("old")
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--conflict", "rename",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Rename to test_1.jpg" in captured.err
+
+def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
+    # Stress test with multiple files and workers
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
+    num_files = 20
+    copied_count = 0
+    for i in range(num_files):
+        # Half identical, half different
+        content = f"content {i}"
+        source_file = source_dir / f"file_{i}.txt"
+        source_file.write_text(content)
+        
+        if i % 2 == 0: # Even index files are identical
+            dest_subdir = dest_dir / "20260321"
+            dest_subdir.mkdir(exist_ok=True)
+            dest_file = dest_subdir / f"file_{i}.txt"
+            dest_file.write_text(content) # Identical
+        else: # Odd index files are different
+            dest_subdir = dest_dir / "20260321"
+            dest_subdir.mkdir(exist_ok=True)
+            dest_file = dest_subdir / f"file_{i}.txt"
+            dest_file.write_text("corrupt") # Different
+            
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--verify", "size",
+        "--workers", "4",
+        "--ext", ".txt"  # Explicitly include .txt files for this test
+    ])
+    
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 0
+    
+    # 10 should be copied (the 'corrupt' ones), 10 should be skipped (the verified ones)
+    captured = capsys.readouterr()
+    assert "Processed 20 files, copied 10" in captured.err
