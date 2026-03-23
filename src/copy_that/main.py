@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 def format_bytes(size: int) -> str:
     """Format bytes into human-readable string."""
+    if size == 0:
+        return "0.00 B"
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if size < 1024:
             return f"{size:.2f} {unit}"
