@@ -18,6 +18,10 @@ class Config(BaseModel):
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
     verification_method: Literal["none", "size", "md5", "sha1"] = "none"
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry"
+    output_verbosity: Literal["minimal", "normal", "verbose"] = "normal"
+    log_file: Optional[Path] = None
+    max_log_size: int = 10 * 1024 * 1024  # 10 MB
+    log_backup_count: int = 5
     pre_sync_space_check: bool = False
     max_workers: Optional[int] = None
     buffer_size: int = Field(default=1024 * 1024, ge=1024, le=128 * 1024 * 1024)

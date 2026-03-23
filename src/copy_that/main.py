@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from typing import Iterable, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from logging.handlers import RotatingFileHandler
 
 import typer
 from typing_extensions import Annotated
@@ -15,7 +16,31 @@ from copy_that.organizer import generate_destination_path
 from copy_that.processor import copy_file, SyncStatus, FileResult
 
 app = typer.Typer(help="Copy and organize files from source to destination.")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("copy_that")
+
+class OutputFilter(logging.Filter):
+    """
+    Filter to control console output verbosity.
+    """
+    def __init__(self, verbosity: str):
+        super().__init__()
+        self.verbosity = verbosity
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # 1. Summary report and critical errors always show
+        msg = record.getMessage()
+        if msg.startswith("-") or msg.startswith("Sync Summary") or msg.startswith("Total Files") or record.levelno >= logging.ERROR:
+            return True
+            
+        # 2. Apply verbosity levels
+        if self.verbosity == "minimal":
+            return record.levelno >= logging.ERROR
+        elif self.verbosity == "normal":
+            # Normal shows INFO and above (standard behavior)
+            return record.levelno >= logging.INFO
+        
+        # verbose shows everything including DEBUG
+        return True
 
 def format_bytes(size: int) -> str:
     """Format bytes into human-readable string."""
@@ -37,6 +62,7 @@ def print_summary(results: List[FileResult], elapsed_time: float):
     total_bytes = sum(r.bytes_transferred for r in results)
     speed = total_bytes / elapsed_time if elapsed_time > 0 else 0
     
+    # Use logger.info for consistency, the filter will allow these through
     logger.info("-" * 40)
     logger.info("Sync Summary")
     logger.info("-" * 40)
@@ -116,8 +142,15 @@ def process_single_file(source_file: Path, config: Config) -> FileResult:
         buffer_size=config.buffer_size
     )
     
-    if result.status != SyncStatus.FAILED:
+    # Success logs are INFO, filter handles them
+    if result.status == SyncStatus.COPIED:
         logger.info(f"Copied {source_file.name} -> {result.destination_path.relative_to(config.destination_base.parent)}")
+    elif result.status == SyncStatus.FAILED:
+        # Failed logs are already handled inside copy_file (ERROR)
+        pass
+    else:
+        # Renamed, Overwritten, Skipped are already handled inside copy_file (WARNING)
+        pass
     
     return result
 
@@ -137,16 +170,14 @@ def sync(
     space_check: Annotated[Optional[bool], typer.Option("--space-check/--no-space-check", help="Enable/disable pre-sync space check")] = None,
     workers: Annotated[Optional[int], typer.Option("--workers", help="Max workers for concurrent copying")] = None,
     buffer_size: Annotated[Optional[int], typer.Option("--buffer-size", help="Buffer size in bytes for copying and hashing")] = None,
+    output_verbosity: Annotated[Optional[str], typer.Option("--verbosity", help="Output verbosity (minimal, normal, verbose)")] = None,
+    log_file: Annotated[Optional[Path], typer.Option("--log-file", help="Path to audit log file (records everything)")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be copied without actually copying")] = False,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose logging")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Shortcut for --verbosity verbose")] = False,
 ):
     """
     Sync and organize files from source to destination.
     """
-    # Setup logging
-    log_level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", force=True)
-
     # Merge CLI options into a single config object
     cli_overrides = {
         "source_directory": source,
@@ -162,13 +193,48 @@ def sync(
         "pre_sync_space_check": space_check,
         "max_workers": workers,
         "buffer_size": buffer_size,
+        "output_verbosity": "verbose" if verbose else output_verbosity,
+        "log_file": log_file,
     }
 
     try:
         config = merge_config(config_path, **cli_overrides)
     except Exception as e:
-        logger.error(f"Configuration error: {e}")
+        # Fallback logging if config fails
+        logging.basicConfig(level=logging.ERROR)
+        logging.error(f"Configuration error: {e}")
         sys.exit(1)
+
+    # Advanced Logging Setup
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG) # Allow everything through to handlers
+    
+    # Clear existing handlers if any
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # 1. Console Handler
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    console_handler.addFilter(OutputFilter(config.output_verbosity))
+    root_logger.addHandler(console_handler)
+
+    # 2. Optional Audit File Handler
+    if config.log_file:
+        try:
+            config.log_file.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                config.log_file,
+                maxBytes=config.max_log_size,
+                backupCount=config.log_backup_count
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            root_logger.addHandler(file_handler)
+            logger.debug(f"Audit log initialized at {config.log_file}")
+        except Exception as e:
+            logger.error(f"Could not initialize log file: {e}")
 
     logger.info(f"Source: {config.source_directory}")
     logger.info(f"Destination: {config.destination_base}")
@@ -204,8 +270,10 @@ def sync(
             status = SyncStatus.COPIED
             bytes_transferred = source_file.stat().st_size
             action = "copy"
+            level = logging.INFO
             
             if dest_file.exists():
+                level = logging.WARNING
                 if config.conflict_policy == "skip":
                     if config.verification_method == "none":
                         action = "skip (exists)"
@@ -228,7 +296,7 @@ def sync(
                     status = SyncStatus.RENAMED
                     dest_file = unique_dest
             
-            logger.info(f"[DRY RUN] {action.capitalize()}: {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
+            logger.log(level, f"[DRY RUN] {action.capitalize()}: {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
             results.append(FileResult(status, source_file, dest_file, bytes_transferred=bytes_transferred))
     else:
         # Concurrent copying
