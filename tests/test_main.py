@@ -358,7 +358,7 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    assert "[DRY RUN] Skip (already verified)" in captured.err
+    assert "[DRY RUN] Skip (verification successful)" in captured.err
 
     # Now modify the destination to fail verification
     (dest_dir / today / "test.jpg").write_text("different")

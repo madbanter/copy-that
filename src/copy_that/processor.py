@@ -91,7 +91,7 @@ def copy_file(
             else:
                 # Integrity-aware skip: Verify the existing file first
                 if verify_copy(source, destination, verification_method, buffer_size=buffer_size):
-                    logger.info(f"Skipping (already verified): {destination.name}")
+                    logger.info(f"Skipping (verification successful): {destination.name}")
                     return FileResult(SyncStatus.SKIPPED, source, destination)
                 else:
                     logger.warning(f"Existing file {destination.name} failed verification. Re-copying...")

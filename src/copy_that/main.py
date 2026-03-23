@@ -211,7 +211,7 @@ def sync(
                         bytes_transferred = 0
                     else:
                         if verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size):
-                            action = "skip (already verified)"
+                            action = "skip (verification successful)"
                             status = SyncStatus.SKIPPED
                             bytes_transferred = 0
                         else:
