@@ -1,5 +1,6 @@
 import pytest
 import shutil
+import datetime
 from pathlib import Path
 from unittest.mock import patch
 from copy_that.main import perform_space_check, main
@@ -328,6 +329,7 @@ def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
     assert "Sync complete" in captured.err
 
 def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
+    today = datetime.datetime.now().strftime("%Y%m%d")
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("source data")
@@ -335,8 +337,8 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     dest_dir = tmp_path / "dest"
     dest_dir.mkdir()
     # Create an identical file in destination
-    (dest_dir / "20260321").mkdir()
-    (dest_dir / "20260321" / "test.jpg").write_text("source data")
+    (dest_dir / today).mkdir()
+    (dest_dir / today / "test.jpg").write_text("source data")
     
     # Run dry run with verification
     monkeypatch.setattr("sys.argv", [
@@ -355,7 +357,7 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     assert "[DRY RUN] Skip (already verified)" in captured.err
 
     # Now modify the destination to fail verification
-    (dest_dir / "20260321" / "test.jpg").write_text("different")
+    (dest_dir / today / "test.jpg").write_text("different")
     
     with pytest.raises(SystemExit) as e:
         main()
@@ -365,14 +367,15 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     assert "[DRY RUN] Overwrite (failed verification)" in captured.err
 
 def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
+    today = datetime.datetime.now().strftime("%Y%m%d")
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("data")
     
     dest_dir = tmp_path / "dest"
     dest_dir.mkdir()
-    (dest_dir / "20260321").mkdir()
-    (dest_dir / "20260321" / "test.jpg").write_text("old")
+    (dest_dir / today).mkdir()
+    (dest_dir / today / "test.jpg").write_text("old")
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
@@ -390,6 +393,7 @@ def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
     assert "[DRY RUN] Rename to test_1.jpg" in captured.err
 
 def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
+    today = datetime.datetime.now().strftime("%Y%m%d")
     # Stress test with multiple files and workers
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -397,7 +401,6 @@ def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
     dest_dir.mkdir()
     
     num_files = 20
-    copied_count = 0
     for i in range(num_files):
         # Half identical, half different
         content = f"content {i}"
@@ -405,12 +408,12 @@ def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
         source_file.write_text(content)
         
         if i % 2 == 0: # Even index files are identical
-            dest_subdir = dest_dir / "20260321"
+            dest_subdir = dest_dir / today
             dest_subdir.mkdir(exist_ok=True)
             dest_file = dest_subdir / f"file_{i}.txt"
             dest_file.write_text(content) # Identical
         else: # Odd index files are different
-            dest_subdir = dest_dir / "20260321"
+            dest_subdir = dest_dir / today
             dest_subdir.mkdir(exist_ok=True)
             dest_file = dest_subdir / f"file_{i}.txt"
             dest_file.write_text("corrupt") # Different
