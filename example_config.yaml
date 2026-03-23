@@ -78,7 +78,9 @@ output_verbosity: "normal"
 log_file: null
 
 # Log rotation settings:
-max_log_size: 10485760  # 10 MB
+# The maximum size of the log file in bytes before it is rotated (default: 10MB).
+max_log_size: 10485760
+# The number of archived log files to keep before deleting the oldest one.
 log_backup_count: 5
 
 # --- Performance ---
