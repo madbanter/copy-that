@@ -10,7 +10,7 @@ from logging.handlers import RotatingFileHandler
 import typer
 from typing_extensions import Annotated
 
-from copy_that.config import merge_config, Config
+from copy_that.config import merge_config, Config, get_default_log_file
 from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
 from copy_that.processor import copy_file, SyncStatus, FileResult
@@ -171,13 +171,19 @@ def sync(
     workers: Annotated[Optional[int], typer.Option("--workers", help="Max workers for concurrent copying")] = None,
     buffer_size: Annotated[Optional[int], typer.Option("--buffer-size", help="Buffer size in bytes for copying and hashing")] = None,
     output_verbosity: Annotated[Optional[str], typer.Option("--verbosity", help="Output verbosity (minimal, normal, verbose)")] = None,
-    log_file: Annotated[Optional[Path], typer.Option("--log-file", help="Path to audit log file (records everything)")] = None,
+    log: Annotated[bool, typer.Option("--log", help="Enable audit logging to standard platform path")] = False,
+    log_file: Annotated[Optional[Path], typer.Option("--log-file", help="Path to audit log file (overrides --log)")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be copied without actually copying")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Shortcut for --verbosity verbose")] = False,
 ):
     """
     Sync and organize files from source to destination.
     """
+    # Determine log path
+    effective_log_file = log_file
+    if log and effective_log_file is None:
+        effective_log_file = get_default_log_file()
+
     # Merge CLI options into a single config object
     cli_overrides = {
         "source_directory": source,
@@ -194,7 +200,7 @@ def sync(
         "max_workers": workers,
         "buffer_size": buffer_size,
         "output_verbosity": "verbose" if verbose else output_verbosity,
-        "log_file": log_file,
+        "log_file": effective_log_file,
     }
 
     try:

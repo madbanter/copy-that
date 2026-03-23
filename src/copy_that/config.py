@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import List, Literal, Optional, Any, Dict
 import yaml
@@ -6,6 +7,26 @@ import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
 logger = logging.getLogger(__name__)
+
+def get_default_log_file() -> Path:
+    """
+    Get the standard log file path for the current platform.
+    macOS: ~/Library/Logs/copy-that/sync.log
+    Linux: ~/.local/state/copy-that/sync.log
+    Others: ~/.copy-that/sync.log
+    """
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Logs" / "copy-that" / "sync.log"
+    elif sys.platform == "linux":
+        # Check XDG_STATE_HOME first
+        import os
+        xdg_state = os.environ.get("XDG_STATE_HOME")
+        if xdg_state:
+            return Path(xdg_state) / "copy-that" / "sync.log"
+        return home / ".local" / "state" / "copy-that" / "sync.log"
+    else:
+        return home / ".copy-that" / "sync.log"
 
 class Config(BaseModel):
     source_directory: Path
@@ -33,9 +54,11 @@ class Config(BaseModel):
             return v
         return [ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in v]
 
-    @field_validator("source_directory", "destination_base")
+    @field_validator("source_directory", "destination_base", "log_file")
     @classmethod
-    def expand_paths(cls, v: Path) -> Path:
+    def expand_paths(cls, v: Optional[Path]) -> Optional[Path]:
+        if v is None:
+            return v
         return v.expanduser().resolve()
 
     @field_validator("filename_date_format")
