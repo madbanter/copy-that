@@ -2,6 +2,7 @@ import logging
 import sys
 import shutil
 import time
+import os
 from pathlib import Path
 from typing import Iterable, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -229,7 +230,15 @@ def sync(
     # 2. Optional Audit File Handler
     if config.log_file:
         try:
-            config.log_file.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure parent directory exists
+            log_dir = config.log_file.parent
+            log_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Proactive check: Can we write to this directory?
+            # RotatingFileHandler might fail later during rollover if permissions are weird.
+            if not os.access(log_dir, os.W_OK):
+                raise PermissionError(f"Directory not writable: {log_dir}")
+
             file_handler = RotatingFileHandler(
                 config.log_file,
                 maxBytes=config.max_log_size,
@@ -240,7 +249,8 @@ def sync(
             root_logger.addHandler(file_handler)
             logger.debug(f"Audit log initialized at {config.log_file}")
         except Exception as e:
-            logger.error(f"Could not initialize log file: {e}")
+            # Non-fatal: Log to stderr and continue
+            print(f"WARNING: Could not initialize log file '{config.log_file}': {e}", file=sys.stderr)
 
     logger.info(f"Source: {config.source_directory}")
     logger.info(f"Destination: {config.destination_base}")
