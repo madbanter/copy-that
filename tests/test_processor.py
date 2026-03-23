@@ -211,47 +211,6 @@ def test_copy_file_skip_with_cryptographic_verification(tmp_path):
     assert result is True # Should overwrite due to MD5 mismatch
     assert dest.read_text() == content
 
-def test_copy_file_skip_with_verification_success(tmp_path):
-    source = tmp_path / "source.txt"
-    dest = tmp_path / "dest.txt"
-    content = "identical content"
-    source.write_text(content)
-    dest.write_text(content)
-    
-    # Should skip because verified (size match)
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
-    assert result is False # False means it was skipped/not copied
-    assert dest.read_text() == content
-
-def test_copy_file_skip_with_verification_failure(tmp_path):
-    source = tmp_path / "source.txt"
-    dest = tmp_path / "dest.txt"
-    source.write_text("source content")
-    dest.write_text("different")
-    
-    # Should overwrite because verification failed
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
-    assert result is True # True means it was copied
-    assert dest.read_text() == "source content"
-
-def test_copy_file_skip_with_cryptographic_verification(tmp_path):
-    source = tmp_path / "source.txt"
-    dest = tmp_path / "dest.txt"
-    content = "hello world"
-    source.write_text(content)
-    dest.write_text(content)
-    
-    # Should skip because MD5 matches
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
-    assert result is False
-    assert dest.read_text() == content
-
-    # Change dest content but keep same size
-    dest.write_text("olleh dlrow")
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
-    assert result is True # Should overwrite due to MD5 mismatch
-    assert dest.read_text() == content
-
 def test_copy_file_permission_error(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
     source.write_text("data")
@@ -265,44 +224,3 @@ def test_copy_file_permission_error(tmp_path, monkeypatch):
     
     # Should log error and return False instead of crashing
     assert copy_file(source, dest) is False
-
-def test_copy_file_skip_with_verification_success(tmp_path):
-    source = tmp_path / "source.txt"
-    dest = tmp_path / "dest.txt"
-    content = "identical content"
-    source.write_text(content)
-    dest.write_text(content)
-    
-    # Should skip because verified (size match)
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
-    assert result is False # False means it was skipped/not copied
-    assert dest.read_text() == content
-
-def test_copy_file_skip_with_verification_failure(tmp_path):
-    source = tmp_path / "source.txt"
-    dest = tmp_path / "dest.txt"
-    source.write_text("source content")
-    dest.write_text("different")
-    
-    # Should overwrite because verification failed
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
-    assert result is True # True means it was copied
-    assert dest.read_text() == "source content"
-
-def test_copy_file_skip_with_cryptographic_verification(tmp_path):
-    source = tmp_path / "source.txt"
-    dest = tmp_path / "dest.txt"
-    content = "hello world"
-    source.write_text(content)
-    dest.write_text(content)
-    
-    # Should skip because MD5 matches
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
-    assert result is False
-    assert dest.read_text() == content
-
-    # Change dest content but keep same size
-    dest.write_text("olleh dlrow")
-    result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
-    assert result is True # Should overwrite due to MD5 mismatch
-    assert dest.read_text() == content

@@ -108,10 +108,25 @@ def test_merge_config_empty_file(tmp_path):
         config = merge_config(source_directory=Path("/tmp/src"), destination_base=Path("/tmp/dest"))
         assert config.source_directory == Path("/tmp/src").resolve()
 
-def test_find_config_search_error_handling(tmp_path):
+def test_find_config_search_error_handling(tmp_path, monkeypatch):
     """Test that find_config skips paths that raise PermissionError or OSError."""
-    # Mock a path that raises an error when resolved or checked for existence
-    with patch("pathlib.Path.resolve", side_effect=PermissionError("Search restricted")):
+    # 1. Isolate from real home directory
+    monkeypatch.setenv("HOME", str(tmp_path / "fake_home"))
+    # 2. Move to an empty directory
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    monkeypatch.chdir(empty_dir)
+    
+    # 3. Mock Path.exists to raise an error for a specific path
+    # We need to be careful not to break everything. 
+    # Let's mock it only for the search targets.
+    original_exists = Path.exists
+    def mocked_exists(self):
+        if "config.yaml" in str(self) or "config.yml" in str(self):
+            raise PermissionError("Access denied to config search")
+        return original_exists(self)
+
+    with patch.object(Path, "exists", autospec=True, side_effect=mocked_exists):
         # Should return None instead of crashing
         assert find_config() is None
 
