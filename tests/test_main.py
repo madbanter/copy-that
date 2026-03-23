@@ -174,6 +174,17 @@ def test_main_config_error(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Configuration error" in captured.err
 
+def test_main_config_merge_error(tmp_path, monkeypatch, capsys):
+    # Test line 240 (Config merging error)
+    # Trigger a ValueError during merge_config
+    with patch("copy_that.main.merge_config", side_effect=ValueError("Merge failed")):
+        monkeypatch.setattr("sys.argv", ["copy-that", "--source", ".", "--dest", "."])
+        with pytest.raises(SystemExit) as e:
+            main()
+        assert e.value.code == 1
+        captured = capsys.readouterr()
+        assert "Merge failed" in captured.err
+
 def test_main_corrupt_yaml(tmp_path, monkeypatch, capsys):
     # Mock sys.argv to point to a corrupt YAML config
     config_file = tmp_path / "corrupt_config.yaml"
