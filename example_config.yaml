@@ -66,6 +66,21 @@ verification_failure_behavior: "retry"
 # If true, performs a pre-scan to estimate required space vs available disk space.
 pre_sync_space_check: false
 
+# --- Logging & Output ---
+# Control what is printed to the console:
+#   - 'minimal': Only log errors.
+#   - 'normal': Errors plus unusual events (skips, overwrites, renames).
+#   - 'verbose': All activity (every file processed).
+output_verbosity: "normal"
+
+# Optional path to a log file for a full audit trail (records everything at DEBUG level).
+# Use 'null' to disable file logging.
+log_file: null
+
+# Log rotation settings:
+max_log_size: 10485760  # 10 MB
+log_backup_count: 5
+
 # --- Performance ---
 # Number of threads for concurrent copying.
 # null = system default (number of CPUs), 1 = sequential.
