@@ -110,6 +110,20 @@ def test_copy_file_verification_failure_ignore(tmp_path, monkeypatch):
     assert result.bytes_transferred == len(content)
     assert dest_file.exists()
 
+def test_copy_file_verification_failure_default(tmp_path, monkeypatch):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("important data")
+    dest_file = tmp_path / "dest.txt"
+    
+    # Mock verify_copy to simulate a failure
+    import copy_that.processor
+    monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m, buffer_size=1048576: False)
+    
+    # Passing an unsupported behavior should hit the 'else' branch
+    result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="unsupported")
+    assert result.status == SyncStatus.FAILED
+    assert result.error_message == "Verification failed"
+
 def test_copy_file_verification_failure_retry(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
     content = "important data"
