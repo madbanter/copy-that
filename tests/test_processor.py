@@ -17,16 +17,23 @@ def test_calculate_checksum_file_digest(tmp_path, monkeypatch):
     file_path = tmp_path / "test.txt"
     file_path.write_text("hello world")
     
-    # Mock hashlib.file_digest if it doesn't exist (to test that branch)
-    if not hasattr(hashlib, "file_digest"):
-        def mocked_file_digest(f, algo):
-            return hashlib.md5(b"mocked")
-        monkeypatch.setattr(hashlib, "file_digest", mocked_file_digest, raising=False)
+    # Mock hashlib.file_digest to return a known value
+    class MockHash:
+        def hexdigest(self):
+            return "mocked_hash"
+            
+    mock_digest_called = False
+    def mocked_file_digest(f, algo):
+        nonlocal mock_digest_called
+        mock_digest_called = True
+        return MockHash()
+        
+    # Force the mock even if it exists
+    monkeypatch.setattr(hashlib, "file_digest", mocked_file_digest, raising=False)
     
-    # The actual result will depend on if file_digest exists or not in reality,
-    # but we just want to ensure it calls it and doesn't crash.
     result = calculate_checksum(file_path, "md5")
-    assert result is not None
+    assert result == "mocked_hash"
+    assert mock_digest_called is True
 
 def test_verify_copy_size(tmp_path):
     source = tmp_path / "source.txt"
