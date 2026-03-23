@@ -1,7 +1,7 @@
 import pytest
 import hashlib
 from pathlib import Path
-from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path
+from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path, SyncStatus, FileResult
 
 def test_calculate_checksum(tmp_path):
     file_path = tmp_path / "test.txt"
@@ -58,7 +58,7 @@ def test_verify_copy_md5(tmp_path):
     assert verify_copy(source, dest, "md5") is False
 
 def test_verify_copy_unknown_method():
-    # Test line 57 (unknown method)
+    # Should not crash, just return True (best effort)
     assert verify_copy(Path("any"), Path("any"), "unknown") is True
 
 def test_copy_file_with_verification(tmp_path):
@@ -68,14 +68,17 @@ def test_copy_file_with_verification(tmp_path):
     dest_dir.mkdir()
     
     source_file = source_dir / "test.jpg"
-    source_file.write_text("fake image data")
+    content = "fake image data"
+    source_file.write_text(content)
     
     dest_file = dest_dir / "test.jpg"
     
     # Test successful copy with MD5 verification
-    assert copy_file(source_file, dest_file, verification_method="md5") is True
+    result = copy_file(source_file, dest_file, verification_method="md5")
+    assert result.status == SyncStatus.COPIED
+    assert result.bytes_transferred == len(content)
     assert dest_file.exists()
-    assert dest_file.read_text() == "fake image data"
+    assert dest_file.read_text() == content
 
 def test_copy_file_verification_failure_delete(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
@@ -86,25 +89,31 @@ def test_copy_file_verification_failure_delete(tmp_path, monkeypatch):
     import copy_that.processor
     monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m, buffer_size=1048576: False)
     
-    assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="delete") is False
+    result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="delete")
+    assert result.status == SyncStatus.FAILED
+    assert result.error_message == "Verification failed and file deleted"
     assert not dest_file.exists()
     assert source_file.exists() # Ensure source is NEVER deleted
 
 def test_copy_file_verification_failure_ignore(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
-    source_file.write_text("important data")
+    content = "important data"
+    source_file.write_text(content)
     dest_file = tmp_path / "dest.txt"
     
     # Mock verify_copy to simulate a failure
     import copy_that.processor
     monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m, buffer_size=1048576: False)
     
-    assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="ignore") is True
+    result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="ignore")
+    assert result.status == SyncStatus.COPIED
+    assert result.bytes_transferred == len(content)
     assert dest_file.exists()
 
 def test_copy_file_verification_failure_retry(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
-    source_file.write_text("important data")
+    content = "important data"
+    source_file.write_text(content)
     dest_file = tmp_path / "dest.txt"
     
     # Track calls to verify_copy
@@ -119,7 +128,9 @@ def test_copy_file_verification_failure_retry(tmp_path, monkeypatch):
     
     monkeypatch.setattr(copy_that.processor, "verify_copy", mocked_verify)
     
-    assert copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="retry") is True
+    result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="retry")
+    assert result.status == SyncStatus.OVERWRITTEN # Retry uses overwrite
+    assert result.bytes_transferred == len(content)
     assert len(calls) == 2
     assert dest_file.exists()
 
@@ -129,7 +140,9 @@ def test_conflict_policy_skip(tmp_path):
     dest = tmp_path / "dest.txt"
     dest.write_text("existing content")
     
-    assert copy_file(source, dest, conflict_policy="skip") is False
+    result = copy_file(source, dest, conflict_policy="skip")
+    assert result.status == SyncStatus.SKIPPED
+    assert result.bytes_transferred == 0
     assert dest.read_text() == "existing content"
 
 def test_conflict_policy_overwrite(tmp_path):
@@ -138,7 +151,9 @@ def test_conflict_policy_overwrite(tmp_path):
     dest = tmp_path / "dest.txt"
     dest.write_text("existing content")
     
-    assert copy_file(source, dest, conflict_policy="overwrite") is True
+    result = copy_file(source, dest, conflict_policy="overwrite")
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert result.bytes_transferred == len("source content")
     assert dest.read_text() == "source content"
 
 def test_conflict_policy_rename(tmp_path):
@@ -155,7 +170,9 @@ def test_conflict_policy_rename(tmp_path):
     dest.write_text("old data")
     
     # Perform copy with rename policy
-    assert copy_file(source, dest, conflict_policy="rename") is True
+    result = copy_file(source, dest, conflict_policy="rename")
+    assert result.status == SyncStatus.RENAMED
+    assert result.bytes_transferred == len("new data")
     
     # The original dest should still have old data
     assert dest.exists()
@@ -186,19 +203,22 @@ def test_copy_file_skip_with_verification_success(tmp_path):
     
     # Should skip because verified (size match)
     result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
-    assert result is False # False means it was skipped/not copied
+    assert result.status == SyncStatus.SKIPPED
+    assert result.bytes_transferred == 0
     assert dest.read_text() == content
 
 def test_copy_file_skip_with_verification_failure(tmp_path):
     source = tmp_path / "source.txt"
     dest = tmp_path / "dest.txt"
-    source.write_text("source content")
+    source_content = "source content"
+    source.write_text(source_content)
     dest.write_text("different")
     
     # Should overwrite because verification failed
     result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
-    assert result is True # True means it was copied
-    assert dest.read_text() == "source content"
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert result.bytes_transferred == len(source_content)
+    assert dest.read_text() == source_content
 
 def test_copy_file_skip_with_cryptographic_verification(tmp_path):
     source = tmp_path / "source.txt"
@@ -209,13 +229,15 @@ def test_copy_file_skip_with_cryptographic_verification(tmp_path):
     
     # Should skip because MD5 matches
     result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
-    assert result is False
+    assert result.status == SyncStatus.SKIPPED
+    assert result.bytes_transferred == 0
     assert dest.read_text() == content
 
     # Change dest content but keep same size
     dest.write_text("olleh dlrow")
     result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
-    assert result is True # Should overwrite due to MD5 mismatch
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert result.bytes_transferred == len(content)
     assert dest.read_text() == content
 
 def test_copy_file_permission_error(tmp_path, monkeypatch):
@@ -229,5 +251,7 @@ def test_copy_file_permission_error(tmp_path, monkeypatch):
     
     monkeypatch.setattr(shutil, "copyfileobj", mocked_copyfileobj)
     
-    # Should log error and return False instead of crashing
-    assert copy_file(source, dest) is False
+    # Should log error and return FAILED result
+    result = copy_file(source, dest)
+    assert result.status == SyncStatus.FAILED
+    assert result.error_message == "Permission denied"

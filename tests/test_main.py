@@ -110,6 +110,7 @@ destination_base: {dest_dir}
     
     captured = capsys.readouterr()
     assert "[DRY RUN] Copy" in captured.err
+    assert "Sync Summary" in captured.err
     assert not dest_dir.exists()
 
 def test_cli_overrides(tmp_path, monkeypatch, capsys):
@@ -138,6 +139,7 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     assert f"Destination: {dest_dir.resolve()}" in captured.err
     assert "Mode: mirror" in captured.err
     assert "[DRY RUN] Copy" in captured.err
+    assert "Sync Summary" in captured.err
 
 def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
     # Mock sys.argv to point to a non-existent source
@@ -216,7 +218,9 @@ def test_main_real_sync(tmp_path, monkeypatch, capsys):
     assert expected_file.read_text() == "image data content"
     
     captured = capsys.readouterr()
-    assert "Sync complete" in captured.err
+    assert "Sync Summary" in captured.err
+    assert "Total Files Processed: 1" in captured.err
+    assert "Copied:            1" in captured.err
 
 def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
@@ -326,7 +330,7 @@ def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
     assert expected_file.read_text() == "data"
     
     captured = capsys.readouterr()
-    assert "Sync complete" in captured.err
+    assert "Sync Summary" in captured.err
 
 def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     today = datetime.datetime.now().strftime("%Y%m%d")
@@ -433,4 +437,6 @@ def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
     
     # 10 should be copied (the 'corrupt' ones), 10 should be skipped (the verified ones)
     captured = capsys.readouterr()
-    assert "Processed 20 files, copied 10" in captured.err
+    assert "Total Files Processed: 20" in captured.err
+    assert "Copied:            10" in captured.err
+    assert "Skipped:           10" in captured.err

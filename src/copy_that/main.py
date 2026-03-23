@@ -1,6 +1,7 @@
 import logging
 import sys
 import shutil
+import time
 from pathlib import Path
 from typing import Iterable, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,10 +12,47 @@ from typing_extensions import Annotated
 from copy_that.config import merge_config, Config
 from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
-from copy_that.processor import copy_file
+from copy_that.processor import copy_file, SyncStatus, FileResult
 
 app = typer.Typer(help="Copy and organize files from source to destination.")
 logger = logging.getLogger(__name__)
+
+def format_bytes(size: int) -> str:
+    """Format bytes into human-readable string."""
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024:
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} PB"
+
+def print_summary(results: List[FileResult], elapsed_time: float):
+    """Print a detailed summary of the sync operation."""
+    total_files = len(results)
+    copied = [r for r in results if r.status in (SyncStatus.COPIED, SyncStatus.OVERWRITTEN, SyncStatus.RENAMED)]
+    skipped = [r for r in results if r.status == SyncStatus.SKIPPED]
+    failed = [r for r in results if r.status == SyncStatus.FAILED]
+    
+    total_bytes = sum(r.bytes_transferred for r in results)
+    speed = total_bytes / elapsed_time if elapsed_time > 0 else 0
+    
+    logger.info("-" * 40)
+    logger.info("Sync Summary")
+    logger.info("-" * 40)
+    logger.info(f"Total Files Processed: {total_files}")
+    logger.info(f"  - Copied:            {len(copied)}")
+    logger.info(f"  - Skipped:           {len(skipped)}")
+    logger.info(f"  - Failed:            {len(failed)}")
+    logger.info(f"Total Data:            {format_bytes(total_bytes)}")
+    logger.info(f"Elapsed Time:          {elapsed_time:.2f} seconds")
+    if total_bytes > 0:
+        logger.info(f"Average Speed:         {format_bytes(int(speed))}/s")
+    logger.info("-" * 40)
+    
+    if failed:
+        logger.error("Failures:")
+        for r in failed:
+            logger.error(f"  - {r.source_path.name}: {r.error_message}")
+        logger.info("-" * 40)
 
 def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
     """
@@ -53,9 +91,9 @@ def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
             f"Available: {free_space / mb:.2f} MB"
         )
 
-def process_single_file(source_file: Path, config: Config) -> bool:
+def process_single_file(source_file: Path, config: Config) -> FileResult:
     """
-    Generate path and copy a single file. Returns True if successfully copied.
+    Generate path and copy a single file. Returns FileResult.
     """
     dest_file = generate_destination_path(
         source_file,
@@ -67,17 +105,19 @@ def process_single_file(source_file: Path, config: Config) -> bool:
         config.filename_date_format
     )
 
-    if copy_file(
+    result = copy_file(
         source_file, 
         dest_file, 
         config.conflict_policy, 
         config.verification_method,
         config.verification_failure_behavior,
         buffer_size=config.buffer_size
-    ):
-        logger.info(f"Copied {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
-        return True
-    return False
+    )
+    
+    if result.status != SyncStatus.FAILED:
+        logger.info(f"Copied {source_file.name} -> {result.destination_path.relative_to(config.destination_base.parent)}")
+    
+    return result
 
 @app.command()
 def sync(
@@ -143,8 +183,8 @@ def sync(
 
     # Discover files
     files_to_sync = list(discover_files(config.source_directory, config.include_extensions))
-    files_processed = 0
-    files_copied = 0
+    results: List[FileResult] = []
+    start_time = time.perf_counter()
 
     if dry_run:
         from copy_that.processor import verify_copy, get_unique_path
@@ -159,25 +199,35 @@ def sync(
                 config.filename_date_format
             )
             
+            status = SyncStatus.COPIED
+            bytes_transferred = source_file.stat().st_size
             action = "copy"
+            
             if dest_file.exists():
                 if config.conflict_policy == "skip":
                     if config.verification_method == "none":
                         action = "skip (exists)"
+                        status = SyncStatus.SKIPPED
+                        bytes_transferred = 0
                     else:
                         if verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size):
                             action = "skip (already verified)"
+                            status = SyncStatus.SKIPPED
+                            bytes_transferred = 0
                         else:
                             action = "overwrite (failed verification)"
+                            status = SyncStatus.OVERWRITTEN
                 elif config.conflict_policy == "overwrite":
                     action = "overwrite"
+                    status = SyncStatus.OVERWRITTEN
                 elif config.conflict_policy == "rename":
                     unique_dest = get_unique_path(dest_file)
                     action = f"rename to {unique_dest.name}"
+                    status = SyncStatus.RENAMED
+                    dest_file = unique_dest
             
             logger.info(f"[DRY RUN] {action.capitalize()}: {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
-            files_processed += 1
-        logger.info(f"Dry run complete. Would process {files_processed} files.")
+            results.append(FileResult(status, source_file, dest_file, bytes_transferred=bytes_transferred))
     else:
         # Concurrent copying
         with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
@@ -187,11 +237,10 @@ def sync(
             }
             
             for future in as_completed(future_to_file):
-                files_processed += 1
-                if future.result():
-                    files_copied += 1
+                results.append(future.result())
 
-        logger.info(f"Sync complete. Processed {files_processed} files, copied {files_copied}.")
+    end_time = time.perf_counter()
+    print_summary(results, end_time - start_time)
 
 def main():
     app()

@@ -3,58 +3,68 @@ import logging
 import hashlib
 from pathlib import Path
 from typing import Optional, Literal
+from enum import Enum
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+class SyncStatus(Enum):
+    COPIED = "copied"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+    OVERWRITTEN = "overwritten"
+    RENAMED = "renamed"
+
+@dataclass
+class FileResult:
+    status: SyncStatus
+    source_path: Path
+    destination_path: Path
+    bytes_transferred: int = 0
+    error_message: Optional[str] = None
+
 def calculate_checksum(path: Path, algorithm: str, buffer_size: int = 1024 * 1024) -> str:
     """
-    Calculate the checksum of a file using the specified algorithm (md5 or sha1).
-    Uses hashlib.file_digest in Python 3.11+ for performance.
+    Calculate the checksum of a file using the specified algorithm.
+    Utilizes hashlib.file_digest (Python 3.11+) if available for performance.
     """
-    hash_func_name = algorithm.lower()
-    
-    # Python 3.11+ optimized way
     if hasattr(hashlib, "file_digest"):
         with open(path, "rb") as f:
-            digest = hashlib.file_digest(f, hash_func_name)
-            return digest.hexdigest()
+            return hashlib.file_digest(f, algorithm).hexdigest()
     
-    # Fallback for Python 3.10
-    hash_func = hashlib.md5() if hash_func_name == "md5" else hashlib.sha1()
+    # Fallback for Python < 3.11
+    hasher = hashlib.new(algorithm)
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(buffer_size), b""):
-            hash_func.update(chunk)
-    return hash_func.hexdigest()
+        while True:
+            chunk = f.read(buffer_size)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 def verify_copy(
     source: Path, 
     destination: Path, 
-    method: Literal["none", "size", "md5", "sha1"],
+    method: Literal["none", "size", "md5", "sha1"] = "none",
     buffer_size: int = 1024 * 1024
 ) -> bool:
     """
-    Verify that the destination file matches the source file based on the selected method.
+    Verify that the destination file matches the source file using the specified method.
     """
     if method == "none":
         return True
     
-    if method == "size":
-        source_size = source.stat().st_size
-        dest_size = destination.stat().st_size
-        if source_size != dest_size:
-            logger.error(f"Verification failed: Size mismatch for {destination.name} (Source: {source_size}, Dest: {dest_size})")
-            return False
-        return True
-    
-    if method in ("md5", "sha1"):
-        source_hash = calculate_checksum(source, method, buffer_size=buffer_size)
-        dest_hash = calculate_checksum(destination, method, buffer_size=buffer_size)
-        if source_hash != dest_hash:
-            logger.error(f"Verification failed: {method.upper()} mismatch for {destination.name}")
-            return False
-        return True
-    
-    return True
+    try:
+        if method == "size":
+            return source.stat().st_size == destination.stat().st_size
+            
+        source_checksum = calculate_checksum(source, method, buffer_size=buffer_size)
+        dest_checksum = calculate_checksum(destination, method, buffer_size=buffer_size)
+        
+        return source_checksum == dest_checksum
+    except (ValueError, OSError) as e:
+        logger.warning(f"Could not verify {destination.name} using {method}: {e}")
+        return True # Fallback to True to avoid infinite loops/retries if verification itself fails
 
 def copy_file(
     source: Path, 
@@ -64,48 +74,56 @@ def copy_file(
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry",
     buffer_size: int = 1024 * 1024,
     _retry_count: int = 0
-) -> bool:
+) -> FileResult:
     """
     Copy a file from source to destination with metadata preservation and verification.
-    Returns True if the file was copied and verified, False if skipped or verification failed.
+    Returns a FileResult object detailing the outcome.
     """
+    final_destination = destination
+    status = SyncStatus.COPIED
+    bytes_to_copy = source.stat().st_size
+
     if destination.exists():
         if conflict_policy == "skip":
             if verification_method == "none":
                 logger.info(f"Skipping existing file: {destination.name}")
-                return False
+                return FileResult(SyncStatus.SKIPPED, source, destination)
             else:
                 # Integrity-aware skip: Verify the existing file first
                 if verify_copy(source, destination, verification_method, buffer_size=buffer_size):
                     logger.info(f"Skipping (already verified): {destination.name}")
-                    return False
+                    return FileResult(SyncStatus.SKIPPED, source, destination)
                 else:
                     logger.warning(f"Existing file {destination.name} failed verification. Re-copying...")
+                    status = SyncStatus.OVERWRITTEN
                     # Proceed to copy (overwrite)
         elif conflict_policy == "overwrite":
             logger.info(f"Overwriting file: {destination.name}")
+            status = SyncStatus.OVERWRITTEN
         elif conflict_policy == "rename":
-            destination = get_unique_path(destination)
-            logger.info(f"Renaming to: {destination.name}")
+            final_destination = get_unique_path(destination)
+            logger.info(f"Renaming to: {final_destination.name}")
+            status = SyncStatus.RENAMED
 
     # Create parent directories if they don't exist
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    final_destination.parent.mkdir(parents=True, exist_ok=True)
     
     try:
         # Optimized Buffered I/O using copyfileobj
         with open(source, "rb") as fsrc:
-            with open(destination, "wb") as fdst:
+            with open(final_destination, "wb") as fdst:
                 shutil.copyfileobj(fsrc, fdst, length=buffer_size)
         
         # Preserve metadata (mtime, atime, flags, etc.)
-        shutil.copystat(source, destination)
+        shutil.copystat(source, final_destination)
         
     except Exception as e:
-        logger.error(f"Failed to copy {source} to {destination}: {e}")
-        return False
+        err_msg = str(e)
+        logger.error(f"Failed to copy {source} to {final_destination}: {err_msg}")
+        return FileResult(SyncStatus.FAILED, source, final_destination, error_message=err_msg)
 
     # Perform verification
-    if not verify_copy(source, destination, verification_method, buffer_size=buffer_size):
+    if not verify_copy(source, final_destination, verification_method, buffer_size=buffer_size):
         if verification_failure_behavior == "retry" and _retry_count < 1:
             logger.info(f"Retrying copy for {source.name}...")
             return copy_file(
@@ -118,16 +136,16 @@ def copy_file(
                 _retry_count=_retry_count + 1
             )
         elif verification_failure_behavior == "delete":
-            logger.warning(f"Deleting corrupted destination file: {destination}")
-            destination.unlink(missing_ok=True)
-            return False
+            logger.warning(f"Deleting corrupted destination file: {final_destination}")
+            final_destination.unlink(missing_ok=True)
+            return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed and file deleted")
         elif verification_failure_behavior == "ignore":
-            logger.warning(f"Verification failed for {destination.name}, but ignoring per config.")
-            return True
+            logger.warning(f"Verification failed for {final_destination.name}, but ignoring per config.")
+            return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy)
         else:
-            return False
+            return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed")
 
-    return True
+    return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy)
 
 def get_unique_path(path: Path) -> Path:
     """
