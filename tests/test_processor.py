@@ -1,5 +1,6 @@
 import pytest
 import hashlib
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path, SyncStatus, FileResult
@@ -109,18 +110,17 @@ def test_copy_file_verification_failure_ignore(tmp_path, monkeypatch):
     monkeypatch.setattr(copy_that.processor, "verify_copy", lambda s, d, m, buffer_size=1048576: False)
     
     result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="ignore")
-    assert result.status == SyncStatus.COPIED # Status is still COPIED but it's "at risk"
+    assert result.status == SyncStatus.COPIED
     assert result.bytes_transferred == len(content)
     assert dest_file.exists()
-    
+
 def test_copy_file_verification_failure_retry(tmp_path, monkeypatch, caplog):
     source_file = tmp_path / "source.txt"
     content = "retry data"
     source_file.write_text(content)
     dest_file = tmp_path / "dest.txt"
     
-    # We want to simulate: first call fails verification, second call (retry) succeeds.
-    # We need to mock verify_copy to return False once, then True.
+    # Simulate: first call fails verification, second call (retry) succeeds.
     verify_results = [False, True]
     def mock_verify(*args, **kwargs):
         return verify_results.pop(0) if verify_results else True
@@ -135,64 +135,121 @@ def test_copy_file_verification_failure_retry(tmp_path, monkeypatch, caplog):
     assert "Retrying copy" in caplog.text
     assert dest_file.exists()
 
-def test_copy_file_failed_copy(tmp_path, monkeypatch):
+def test_conflict_policy_skip(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("source content")
+    dest = tmp_path / "dest.txt"
+    dest.write_text("existing content")
+    
+    result = copy_file(source, dest, conflict_policy="skip")
+    assert result.status == SyncStatus.SKIPPED
+    assert result.bytes_transferred == 0
+    assert dest.read_text() == "existing content"
+
+def test_conflict_policy_overwrite(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("source content")
+    dest = tmp_path / "dest.txt"
+    dest.write_text("existing content")
+    
+    result = copy_file(source, dest, conflict_policy="overwrite")
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert result.bytes_transferred == len("source content")
+    assert dest.read_text() == "source content"
+
+def test_conflict_policy_rename(tmp_path):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    dst_dir = tmp_path / "dst"
+    dst_dir.mkdir()
+    
+    source = src_dir / "image.jpg"
+    source.write_text("new data")
+    
+    dest = dst_dir / "image.jpg"
+    dest.write_text("old data")
+    
+    result = copy_file(source, dest, conflict_policy="rename")
+    assert result.status == SyncStatus.RENAMED
+    assert result.bytes_transferred == len("new data")
+    assert dest.exists()
+    assert dest.read_text() == "old data"
+    renamed_dest = dst_dir / "image_1.jpg"
+    assert renamed_dest.exists()
+    assert renamed_dest.read_text() == "new data"
+
+def test_get_unique_path(tmp_path):
+    base_path = tmp_path / "test.txt"
+    assert get_unique_path(base_path) == base_path
+    
+    base_path.write_text("exist")
+    path_1 = get_unique_path(base_path)
+    assert path_1 == tmp_path / "test_1.txt"
+    
+    path_1.write_text("1")
+    path_2 = get_unique_path(base_path)
+    assert path_2 == tmp_path / "test_2.txt"
+
+def test_copy_file_skip_with_verification_success(tmp_path, caplog):
+    source = tmp_path / "source.txt"
+    dest = tmp_path / "dest.txt"
+    content = "identical content"
+    source.write_text(content)
+    dest.write_text(content)
+    
+    with caplog.at_level("WARNING"):
+        result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
+    assert result.status == SyncStatus.SKIPPED
+    assert "Skipping (verification successful)" in caplog.text
+
+def test_copy_file_skip_with_verification_failure(tmp_path, caplog):
+    source = tmp_path / "source.txt"
+    dest = tmp_path / "dest.txt"
+    source_content = "source content"
+    source.write_text(source_content)
+    dest.write_text("different")
+    
+    with caplog.at_level("WARNING"):
+        result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert dest.read_text() == source_content
+
+def test_copy_file_skip_with_cryptographic_verification(tmp_path):
+    source = tmp_path / "source.txt"
+    dest = tmp_path / "dest.txt"
+    content = "hello world"
+    source.write_text(content)
+    dest.write_text(content)
+    
+    result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
+    assert result.status == SyncStatus.SKIPPED
+    
+    dest.write_text("olleh dlrow")
+    result = copy_file(source, dest, conflict_policy="skip", verification_method="md5")
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert dest.read_text() == content
+
+def test_copy_file_failed_copy(tmp_path):
     source_file = tmp_path / "source.txt"
     source_file.write_text("data")
     dest_file = tmp_path / "dest.txt"
     
-    # We need to mock the builtin open inside copy_file's context or similar.
     with patch("builtins.open", side_effect=PermissionError("Mocked write error")):
         result = copy_file(source_file, dest_file)
         
     assert result.status == SyncStatus.FAILED
     assert "Mocked write error" in result.error_message
 
-def test_integrity_aware_skip_success(tmp_path, monkeypatch, caplog):
-    source_file = tmp_path / "source.txt"
-    source_file.write_text("same")
-    dest_file = tmp_path / "dest.txt"
-    dest_file.write_text("same")
+def test_copy_file_permission_error(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("data")
+    dest = tmp_path / "dest.txt"
     
-    # Should skip because verification passes
-    with caplog.at_level("WARNING"):
-        result = copy_file(source_file, dest_file, verification_method="size")
-        
-    assert result.status == SyncStatus.SKIPPED
-    assert "Skipping (verification successful)" in caplog.text
-
-def test_integrity_aware_skip_failure(tmp_path, monkeypatch, caplog):
-    source_file = tmp_path / "source.txt"
-    source_file.write_text("new content")
-    dest_file = tmp_path / "dest.txt"
-    dest_file.write_text("old")
+    def mocked_copyfileobj(fsrc, fdst, length):
+        raise PermissionError("Permission denied")
     
-    # Should NOT skip because verification fails, should overwrite
-    with caplog.at_level("WARNING"):
-        result = copy_file(source_file, dest_file, verification_method="size")
-        
-    assert result.status == SyncStatus.OVERWRITTEN
-    assert dest_file.read_text() == "new content"
-
-def test_get_unique_path(tmp_path):
-    file_path = tmp_path / "test.txt"
-    assert get_unique_path(file_path) == file_path
+    monkeypatch.setattr(shutil, "copyfileobj", mocked_copyfileobj)
     
-    file_path.write_text("exist")
-    unique_1 = tmp_path / "test_1.txt"
-    assert get_unique_path(file_path) == unique_1
-    
-    unique_1.write_text("exist")
-    unique_2 = tmp_path / "test_2.txt"
-    assert get_unique_path(file_path) == unique_2
-
-def test_copy_file_rename_policy(tmp_path):
-    source_file = tmp_path / "test.txt"
-    source_file.write_text("data")
-    dest_file = tmp_path / "test.txt"
-    dest_file.write_text("original")
-    
-    result = copy_file(source_file, dest_file, conflict_policy="rename")
-    assert result.status == SyncStatus.RENAMED
-    assert result.destination_path.name == "test_1.txt"
-    assert result.destination_path.exists()
-    assert dest_file.read_text() == "original"
+    result = copy_file(source, dest)
+    assert result.status == SyncStatus.FAILED
+    assert "Permission denied" in result.error_message
