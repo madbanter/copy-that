@@ -288,30 +288,30 @@ def sync(
 
             status = SyncStatus.COPIED
             bytes_transferred = source_file.stat().st_size
-            action = "copy"
+            action = "would copy"
             level = logging.INFO
 
             if dest_file.exists():
                 level = logging.WARNING
                 if config.conflict_policy == "skip":
                     if config.verification_method == "none":
-                        action = "skip (exists)"
+                        action = "would skip (exists)"
                         status = SyncStatus.SKIPPED
                         bytes_transferred = 0
                     else:
                         if verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size):
-                            action = "skip (verification successful)"
+                            action = "would skip (verification successful)"
                             status = SyncStatus.SKIPPED
                             bytes_transferred = 0
                         else:
-                            action = "overwrite (failed verification)"
+                            action = "would overwrite (failed verification)"
                             status = SyncStatus.OVERWRITTEN
                 elif config.conflict_policy == "overwrite":
-                    action = "overwrite"
+                    action = "would overwrite"
                     status = SyncStatus.OVERWRITTEN
                 elif config.conflict_policy == "rename":
                     unique_dest = get_unique_path(dest_file)
-                    action = f"rename to {unique_dest.name}"
+                    action = f"would rename to {unique_dest.name}"
                     status = SyncStatus.RENAMED
                     dest_file = unique_dest
 
@@ -329,7 +329,7 @@ def sync(
                 results.append(future.result())
 
     end_time = time.perf_counter()
-    print_summary(results, end_time - start_time)
+    print_summary(results, end_time - start_time, dry_run=dry_run)
 
 def main():
     app()
