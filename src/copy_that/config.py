@@ -1,12 +1,15 @@
 import sys
 from pathlib import Path
-from typing import List, Literal, Optional, Any, Dict
+from typing import List, Literal, Optional, Any, Dict, get_args
 import yaml
 import logging
 import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
 logger = logging.getLogger(__name__)
+
+VerificationMethod = Literal["none", "size", "md5", "sha1"]
+SUPPORTED_VERIFICATION_METHODS = get_args(VerificationMethod)
 
 def get_default_log_file() -> Path:
     """
@@ -37,7 +40,7 @@ class Config(BaseModel):
     filename_date_format: str = "%Y-%m-%d %H.%M.%S"
     include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".jpeg", ".cr3", ".arw", ".dng", ".mp4", ".xmp"])
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
-    verification_method: Literal["none", "size", "md5", "sha1"] = "none"
+    verification_method: VerificationMethod = "none"
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry"
     output_verbosity: Literal["minimal", "normal", "verbose"] = "normal"
     log_file: Optional[Path] = None

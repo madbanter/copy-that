@@ -6,6 +6,8 @@ from typing import Optional, Literal
 from enum import Enum
 from dataclasses import dataclass
 
+from copy_that.config import VerificationMethod, SUPPORTED_VERIFICATION_METHODS
+
 logger = logging.getLogger(__name__)
 
 class SyncStatus(Enum):
@@ -45,15 +47,20 @@ def calculate_checksum(path: Path, algorithm: str, buffer_size: int = 1024 * 102
 def verify_copy(
     source: Path, 
     destination: Path, 
-    method: Literal["none", "size", "md5", "sha1"] = "none",
+    method: VerificationMethod = "none",
     buffer_size: int = 1024 * 1024
 ) -> bool:
     """
     Verify that the destination file matches the source file using the specified method.
+    Returns True if verification passes, False if it fails or if verification cannot be performed.
     """
     if method == "none":
         return True
     
+    if method not in SUPPORTED_VERIFICATION_METHODS:
+        logger.error(f"Unknown verification method: {method}")
+        return False
+
     try:
         if method == "size":
             return source.stat().st_size == destination.stat().st_size
@@ -63,14 +70,14 @@ def verify_copy(
         
         return source_checksum == dest_checksum
     except (ValueError, OSError) as e:
-        logger.warning(f"Could not verify {destination.name} using {method}: {e}")
-        return True # Fallback to True to avoid infinite loops/retries if verification itself fails
+        logger.error(f"Could not verify {destination.name} using {method}: {e}")
+        return False # Fail-closed: Verification failed to complete, so assume the copy is potentially invalid
 
 def copy_file(
     source: Path, 
     destination: Path, 
     conflict_policy: str = "skip",
-    verification_method: Literal["none", "size", "md5", "sha1"] = "none",
+    verification_method: VerificationMethod = "none",
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry",
     buffer_size: int = 1024 * 1024,
     _retry_count: int = 0
