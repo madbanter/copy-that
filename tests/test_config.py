@@ -44,6 +44,14 @@ def test_extension_normalization():
     )
     assert config.include_extensions == [".jpg", ".png", ".mp4", ".arw"]
 
+def test_config_normalize_extensions_not_list():
+    # normalize_extensions: if not isinstance(v, list): return v
+    assert Config.normalize_extensions("not a list") == "not a list"
+
+def test_config_expand_paths_none():
+    # expand_paths: if v is None: return v
+    assert Config.expand_paths(None) is None
+
 def test_merge_config_no_file(tmp_path):
     # Test merging when no config file exists, only CLI args
     source = tmp_path / "src"

@@ -65,6 +65,13 @@ def test_verify_copy_unknown_method(caplog):
         assert verify_copy(Path("any"), Path("any"), "unknown") is False
     assert "Unknown verification method: unknown" in caplog.text
 
+def test_verify_copy_os_error(caplog):
+    # Trigger OSError in verify_copy (e.g. file doesn't exist when stat'ing)
+    with caplog.at_level("ERROR"):
+        result = verify_copy(Path("nonexistent_source"), Path("nonexistent_dest"), method="size")
+    assert result is False
+    assert "Could not verify" in caplog.text
+
 def test_copy_file_with_verification(tmp_path):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
@@ -134,6 +141,20 @@ def test_copy_file_verification_failure_retry(tmp_path, monkeypatch, caplog):
     assert result.status == SyncStatus.OVERWRITTEN
     assert "Retrying copy" in caplog.text
     assert dest_file.exists()
+
+def test_copy_file_unsupported_failure_behavior(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("data")
+    dest = tmp_path / "dest.txt"
+    dest.write_text("corrupt")
+    
+    # Force verification failure
+    monkeypatch.setattr("copy_that.processor.verify_copy", lambda *args, **kwargs: False)
+    
+    # Passing an unsupported behavior should hit the 'else' branch
+    result = copy_file(source, dest, verification_method="size", verification_failure_behavior="invalid")
+    assert result.status == SyncStatus.FAILED
+    assert result.error_message == "Verification failed"
 
 def test_conflict_policy_skip(tmp_path):
     source = tmp_path / "source.txt"

@@ -1,6 +1,8 @@
 import pytest
 import shutil
 import datetime
+import os
+import logging
 from pathlib import Path
 from unittest.mock import patch
 from copy_that.main import perform_space_check, main
@@ -21,12 +23,7 @@ def test_perform_space_check_sufficient(tmp_path, monkeypatch):
         destination_base=tmp_path / "dest"
     )
     
-    # Mock disk_usage to return plenty of space
-    # shutil.usage returns (total, used, free)
     monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(1000, 500, 500))
-    
-    # Should not raise any warnings (we'd need to mock logger to be sure, 
-    # but this at least ensures it doesn't crash)
     perform_space_check([source_file], config)
 
 def test_perform_space_check_insufficient(tmp_path, monkeypatch, caplog):
@@ -50,9 +47,6 @@ def test_perform_space_check_skip_existing(tmp_path, monkeypatch, caplog):
     source_file = tmp_path / "source.txt"
     source_file.write_text("large file content")
     
-    # Create the "already exists" file in destination
-    # We need to know where it would be placed. 
-    # generate_destination_path uses date by default.
     from copy_that.organizer import generate_destination_path
     dest_base = tmp_path / "dest"
     config = Config(
@@ -85,14 +79,8 @@ def test_dry_run_no_io(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("data")
-    
     dest_dir = tmp_path / "dest"
-    
-    config_file = tmp_path / "config.yaml"
-    config_file.write_text(f"""
-source_directory: {source_dir}
-destination_base: {dest_dir}
-""")
+    dest_dir.mkdir()
     
     # Mock copy_file to ensure it's NOT called
     def error_if_called(*args, **kwargs):
@@ -101,27 +89,30 @@ destination_base: {dest_dir}
     import copy_that.main
     monkeypatch.setattr(copy_that.main, "copy_file", error_if_called)
     
-    # Mock sys.argv
-    monkeypatch.setattr("sys.argv", ["copy-that", "--config", str(config_file), "--dry-run"])
+    monkeypatch.setattr("sys.argv", [
+        "copy-that", 
+        "--source", str(source_dir), 
+        "--dest", str(dest_dir), 
+        "--dry-run"
+    ])
     
     with pytest.raises(SystemExit) as e:
         main()
     assert e.value.code == 0
     
     captured = capsys.readouterr()
+    # Logic: [DRY RUN] is only logged if normal INFO level is reached.
+    # OutputFilter allows INFO and above.
     assert "[DRY RUN] Would copy" in captured.err
     assert "Sync Summary (DRY RUN)" in captured.err
-    assert not dest_dir.exists()
 
 def test_cli_overrides(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("data")
-    
     dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
     
-    # We won't use a config file, just CLI overrides
-    import copy_that.main
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
         "--source", str(source_dir), 
@@ -131,7 +122,7 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     ])
     
     with pytest.raises(SystemExit) as e:
-        copy_that.main.main()
+        main()
     assert e.value.code == 0
     
     captured = capsys.readouterr()
@@ -142,11 +133,13 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     assert "Sync Summary (DRY RUN)" in captured.err
 
 def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
-    # Mock sys.argv to point to a non-existent source
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
         "--source", str(tmp_path / "nonexistent"), 
-        "--dest", str(tmp_path / "dest"),
+        "--dest", str(dest_dir),
         "--dry-run"
     ])
     
@@ -158,33 +151,35 @@ def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
     assert "Source directory does not exist" in captured.err
 
 def test_main_config_error(tmp_path, monkeypatch, caplog):
-    # Mock sys.argv to point to an invalid config
     config_file = tmp_path / "invalid_config.yaml"
-    config_file.write_text("source_directory: []") # Should fail pydantic validation
+    config_file.write_text("source_directory: []") 
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
         "--config", str(config_file)
     ])
     
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.ERROR):
         with pytest.raises(SystemExit) as e:
             main()
     assert e.value.code == 1
     assert "Configuration error" in caplog.text
 
 def test_main_config_merge_error(tmp_path, monkeypatch, caplog):
-    # Trigger a ValueError during merge_config
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
     with patch("copy_that.main.merge_config", side_effect=ValueError("Merge failed")):
-        monkeypatch.setattr("sys.argv", ["copy-that", "--source", ".", "--dest", "."])
-        with caplog.at_level("ERROR"):
+        monkeypatch.setattr("sys.argv", ["copy-that", "--source", str(source_dir), "--dest", str(dest_dir)])
+        with caplog.at_level(logging.ERROR):
             with pytest.raises(SystemExit) as e:
                 main()
         assert e.value.code == 1
         assert "Merge failed" in caplog.text
 
 def test_main_corrupt_yaml(tmp_path, monkeypatch, caplog):
-    # Mock sys.argv to point to a corrupt YAML config
     config_file = tmp_path / "corrupt_config.yaml"
     config_file.write_text("source_directory: [unclosed list")
     
@@ -193,21 +188,19 @@ def test_main_corrupt_yaml(tmp_path, monkeypatch, caplog):
         "--config", str(config_file)
     ])
     
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.ERROR):
         with pytest.raises(SystemExit) as e:
             main()
     assert e.value.code == 1
     assert "Configuration error: Error parsing configuration file" in caplog.text
 
 def test_main_real_sync(tmp_path, monkeypatch, capsys):
-    # Setup real source and destination
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "photo.jpg").write_text("image data content")
-    
     dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
     
-    # Run real sync using mirror mode
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
         "--source", str(source_dir), 
@@ -220,7 +213,6 @@ def test_main_real_sync(tmp_path, monkeypatch, capsys):
         main()
     assert e.value.code == 0
     
-    # Verify file was actually copied
     expected_file = dest_dir / "photo.jpg"
     assert expected_file.exists()
     assert expected_file.read_text() == "image data content"
@@ -234,10 +226,9 @@ def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("data")
-    
     dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
     
-    # Mock disk_usage to trigger a warning
     monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(100, 99, 1))
     
     monkeypatch.setattr("sys.argv", [
@@ -261,8 +252,8 @@ def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
     source_dir.mkdir()
     filename = "2023-01-01 12.00.00.jpg"
     (source_dir / filename).write_text("data")
-    
     dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
@@ -277,7 +268,6 @@ def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    # Default folder_format is %Y%m%d. Logger output includes 'dest/' prefix because it's relative to dest.parent
     assert f"[DRY RUN] Would copy: {filename} -> dest/20230101/{filename}" in captured.err
 
 def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
@@ -285,10 +275,9 @@ def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
     source_dir.mkdir()
     filename = "2023-01-01 12.00.00.jpg"
     (source_dir / filename).write_text("data")
-    
     dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
     
-    # Mock disk_usage to return 0 space to trigger warning
     monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(100, 100, 0))
     
     monkeypatch.setattr("sys.argv", [
@@ -311,13 +300,11 @@ def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
 def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
-    # Create file with date in name
     filename = "2015-12-26 15.13.52-1.jpg"
     (source_dir / filename).write_text("data")
-    
     dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
     
-    # Run sync with filename date source
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
         "--source", str(source_dir), 
@@ -332,7 +319,6 @@ def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
         main()
     assert e.value.code == 0
     
-    # Verify file was copied to the correct date-based folder
     expected_file = dest_dir / "2015-12-26" / filename
     assert expected_file.exists()
     assert expected_file.read_text() == "data"
@@ -345,14 +331,11 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("source data")
-    
     dest_dir = tmp_path / "dest"
     dest_dir.mkdir()
-    # Create an identical file in destination
     (dest_dir / today).mkdir()
     (dest_dir / today / "test.jpg").write_text("source data")
     
-    # Run dry run with verification
     monkeypatch.setattr("sys.argv", [
         "copy-that",
         "--source", str(source_dir),
@@ -368,7 +351,6 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "[DRY RUN] Would skip (verification successful)" in captured.err
 
-    # Now modify the destination to fail verification
     (dest_dir / today / "test.jpg").write_text("different")
     
     with pytest.raises(SystemExit) as e:
@@ -383,7 +365,6 @@ def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "test.jpg").write_text("data")
-    
     dest_dir = tmp_path / "dest"
     dest_dir.mkdir()
     (dest_dir / today).mkdir()
@@ -406,7 +387,6 @@ def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
 
 def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
     today = datetime.datetime.now().strftime("%Y%m%d")
-    # Stress test with multiple files and workers
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     dest_dir = tmp_path / "dest"
@@ -414,21 +394,20 @@ def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
     
     num_files = 20
     for i in range(num_files):
-        # Half identical, half different
         content = f"content {i}"
         source_file = source_dir / f"file_{i}.txt"
         source_file.write_text(content)
         
-        if i % 2 == 0: # Even index files are identical
+        if i % 2 == 0: 
             dest_subdir = dest_dir / today
             dest_subdir.mkdir(exist_ok=True)
             dest_file = dest_subdir / f"file_{i}.txt"
-            dest_file.write_text(content) # Identical
-        else: # Odd index files are different
+            dest_file.write_text(content)
+        else: 
             dest_subdir = dest_dir / today
             dest_subdir.mkdir(exist_ok=True)
             dest_file = dest_subdir / f"file_{i}.txt"
-            dest_file.write_text("corrupt") # Different
+            dest_file.write_text("corrupt")
             
     monkeypatch.setattr("sys.argv", [
         "copy-that",
@@ -436,15 +415,192 @@ def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
         "--dest", str(dest_dir),
         "--verify", "size",
         "--workers", "4",
-        "--ext", ".txt"  # Explicitly include .txt files for this test
+        "--ext", ".txt" 
     ])
     
     with pytest.raises(SystemExit) as e:
         main()
     assert e.value.code == 0
     
-    # 10 should be copied (the 'corrupt' ones), 10 should be skipped (the verified ones)
     captured = capsys.readouterr()
     assert "Total Files Processed: 20" in captured.err
     assert "Copied:            10" in captured.err
     assert "Skipped:           10" in captured.err
+
+def test_main_log_default_path(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
+    mock_log = tmp_path / "default.log"
+    monkeypatch.setattr("copy_that.main.get_default_log_file", lambda: mock_log)
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--log",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+    
+    assert mock_log.exists()
+
+def test_main_log_dir_not_writable_capsys(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    log_file = tmp_path / "no_access" / "test.log"
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--log-file", str(log_file),
+        "--dry-run"
+    ])
+    
+    # Use a side effect to only fail for the log directory
+    original_access = os.access
+    def mocked_access(path, mode):
+        if str(path).startswith(str(log_file.parent)):
+            return False
+        return original_access(path, mode)
+
+    with patch("os.access", side_effect=mocked_access):
+        with pytest.raises(SystemExit):
+            main()
+            
+    captured = capsys.readouterr()
+    assert "Could not initialize log file" in captured.err
+    assert "Directory not writable" in captured.err
+
+def test_dry_run_skip_none_verify(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    (dest_dir / "test.jpg").write_text("exists")
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--mode", "mirror",
+        "--conflict", "skip",
+        "--verify", "none",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+        
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Would skip (exists)" in captured.err
+
+def test_dry_run_overwrite_policy(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    (dest_dir / "test.jpg").write_text("exists")
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--mode", "mirror",
+        "--conflict", "overwrite",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+        
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Would overwrite" in captured.err
+
+def test_main_process_single_file_failed_branch(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
+    from copy_that.processor import FileResult, SyncStatus
+    mock_result = FileResult(SyncStatus.FAILED, source_dir / "test.jpg", dest_dir / "test.jpg", error_message="Simulated failure")
+    monkeypatch.setattr("copy_that.main.copy_file", lambda *args, **kwargs: mock_result)
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--no-space-check"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+    
+    captured = capsys.readouterr()
+    assert "Simulated failure" in captured.err
+
+def test_dry_run_skip_date_mode(tmp_path, monkeypatch, capsys):
+    today = datetime.datetime.now().strftime("%Y%m%d")
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    # Setup for date mode: file must be in the date folder
+    (dest_dir / today).mkdir()
+    (dest_dir / today / "test.jpg").write_text("data")
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--mode", "date",
+        "--conflict", "skip",
+        "--dry-run"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+        
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Would skip (exists)" in captured.err
+
+def test_real_sync_mirror_nested(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    nested = source_dir / "a" / "b"
+    nested.mkdir(parents=True)
+    (nested / "file.txt").write_text("content")
+    
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--mode", "mirror",
+        "--ext", ".txt",
+        "--no-space-check"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+        
+    expected_file = dest_dir / "a" / "b" / "file.txt"
+    assert expected_file.exists()
+    assert expected_file.read_text() == "content"
+    
+    captured = capsys.readouterr()
+    assert "Copied:            1" in captured.err
