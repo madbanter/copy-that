@@ -32,14 +32,14 @@ class OutputFilter(logging.Filter):
         msg = record.getMessage()
         if msg.startswith("-") or msg.startswith("Sync Summary") or msg.startswith("Total Files") or record.levelno >= logging.ERROR:
             return True
-            
+
         # 2. Apply verbosity levels
         if self.verbosity == "minimal":
             return record.levelno >= logging.ERROR
         elif self.verbosity == "normal":
             # Normal shows INFO and above (standard behavior)
             return record.levelno >= logging.INFO
-        
+
         # verbose shows everything including DEBUG
         return True
 
@@ -59,10 +59,10 @@ def print_summary(results: List[FileResult], elapsed_time: float):
     copied = [r for r in results if r.status in (SyncStatus.COPIED, SyncStatus.OVERWRITTEN, SyncStatus.RENAMED)]
     skipped = [r for r in results if r.status == SyncStatus.SKIPPED]
     failed = [r for r in results if r.status == SyncStatus.FAILED]
-    
+
     total_bytes = sum(r.bytes_transferred for r in results)
     speed = total_bytes / elapsed_time if elapsed_time > 0 else 0
-    
+
     # Use logger.info for consistency, the filter will allow these through
     logger.info("-" * 40)
     logger.info("Sync Summary")
@@ -76,7 +76,7 @@ def print_summary(results: List[FileResult], elapsed_time: float):
     if total_bytes > 0:
         logger.info(f"Average Speed:         {format_bytes(int(speed))}/s")
     logger.info("-" * 40)
-    
+
     if failed:
         logger.error("Failures:")
         for r in failed:
@@ -100,10 +100,10 @@ def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
             config.date_source,
             config.filename_date_format
         )
-        
+
         if config.conflict_policy == "skip" and dest_file.exists():
             continue
-            
+
         total_size_needed += source_file.stat().st_size
 
     check_path = config.destination_base
@@ -111,7 +111,7 @@ def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
         check_path = check_path.parent
 
     free_space = shutil.disk_usage(check_path).free
-    
+
     if total_size_needed > free_space:
         mb = 1024 * 1024
         logger.warning(
@@ -135,14 +135,14 @@ def process_single_file(source_file: Path, config: Config) -> FileResult:
     )
 
     result = copy_file(
-        source_file, 
-        dest_file, 
-        config.conflict_policy, 
+        source_file,
+        dest_file,
+        config.conflict_policy,
         config.verification_method,
         config.verification_failure_behavior,
         buffer_size=config.buffer_size
     )
-    
+
     # Success logs are INFO, filter handles them
     if result.status == SyncStatus.COPIED:
         logger.info(f"Copied {source_file.name} -> {result.destination_path.relative_to(config.destination_base.parent)}")
@@ -152,7 +152,7 @@ def process_single_file(source_file: Path, config: Config) -> FileResult:
     else:
         # Renamed, Overwritten, Skipped are already handled inside copy_file (WARNING)
         pass
-    
+
     return result
 
 @app.command()
@@ -215,7 +215,7 @@ def sync(
     # Advanced Logging Setup
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG) # Allow everything through to handlers
-    
+
     # Clear existing handlers if any
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
@@ -233,7 +233,7 @@ def sync(
             # Ensure parent directory exists
             log_dir = config.log_file.parent
             log_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Proactive check: Can we write to this directory?
             # RotatingFileHandler might fail later during rollover if permissions are weird.
             if not os.access(log_dir, os.W_OK):
@@ -255,7 +255,7 @@ def sync(
     logger.info(f"Source: {config.source_directory}")
     logger.info(f"Destination: {config.destination_base}")
     logger.info(f"Mode: {config.organization_mode}")
-    
+
     if not config.source_directory.exists():
         logger.error(f"Source directory does not exist: {config.source_directory}")
         sys.exit(1)
@@ -274,20 +274,20 @@ def sync(
         from copy_that.processor import verify_copy, get_unique_path
         for source_file in files_to_sync:
             dest_file = generate_destination_path(
-                source_file, 
-                config.source_directory, 
-                config.destination_base, 
+                source_file,
+                config.source_directory,
+                config.destination_base,
                 config.folder_format,
                 config.organization_mode,
                 config.date_source,
                 config.filename_date_format
             )
-            
+
             status = SyncStatus.COPIED
             bytes_transferred = source_file.stat().st_size
             action = "copy"
             level = logging.INFO
-            
+
             if dest_file.exists():
                 level = logging.WARNING
                 if config.conflict_policy == "skip":
@@ -311,17 +311,17 @@ def sync(
                     action = f"rename to {unique_dest.name}"
                     status = SyncStatus.RENAMED
                     dest_file = unique_dest
-            
+
             logger.log(level, f"[DRY RUN] {action.capitalize()}: {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
             results.append(FileResult(status, source_file, dest_file, bytes_transferred=bytes_transferred))
     else:
         # Concurrent copying
         with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
             future_to_file = {
-                executor.submit(process_single_file, source_file, config): source_file 
+                executor.submit(process_single_file, source_file, config): source_file
                 for source_file in files_to_sync
             }
-            
+
             for future in as_completed(future_to_file):
                 results.append(future.result())
 
