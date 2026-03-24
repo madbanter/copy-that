@@ -157,7 +157,7 @@ def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Source directory does not exist" in captured.err
 
-def test_main_config_error(tmp_path, monkeypatch, capsys):
+def test_main_config_error(tmp_path, monkeypatch, caplog):
     # Mock sys.argv to point to an invalid config
     config_file = tmp_path / "invalid_config.yaml"
     config_file.write_text("source_directory: []") # Should fail pydantic validation
@@ -167,25 +167,23 @@ def test_main_config_error(tmp_path, monkeypatch, capsys):
         "--config", str(config_file)
     ])
     
-    with pytest.raises(SystemExit) as e:
-        main()
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as e:
+            main()
     assert e.value.code == 1
-    
-    captured = capsys.readouterr()
-    assert "Configuration error" in captured.err
+    assert "Configuration error" in caplog.text
 
-def test_main_config_merge_error(tmp_path, monkeypatch, capsys):
-    # Test line 240 (Config merging error)
+def test_main_config_merge_error(tmp_path, monkeypatch, caplog):
     # Trigger a ValueError during merge_config
     with patch("copy_that.main.merge_config", side_effect=ValueError("Merge failed")):
         monkeypatch.setattr("sys.argv", ["copy-that", "--source", ".", "--dest", "."])
-        with pytest.raises(SystemExit) as e:
-            main()
+        with caplog.at_level("ERROR"):
+            with pytest.raises(SystemExit) as e:
+                main()
         assert e.value.code == 1
-        captured = capsys.readouterr()
-        assert "Merge failed" in captured.err
+        assert "Merge failed" in caplog.text
 
-def test_main_corrupt_yaml(tmp_path, monkeypatch, capsys):
+def test_main_corrupt_yaml(tmp_path, monkeypatch, caplog):
     # Mock sys.argv to point to a corrupt YAML config
     config_file = tmp_path / "corrupt_config.yaml"
     config_file.write_text("source_directory: [unclosed list")
@@ -195,12 +193,11 @@ def test_main_corrupt_yaml(tmp_path, monkeypatch, capsys):
         "--config", str(config_file)
     ])
     
-    with pytest.raises(SystemExit) as e:
-        main()
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as e:
+            main()
     assert e.value.code == 1
-    
-    captured = capsys.readouterr()
-    assert "Configuration error: Error parsing configuration file" in captured.err
+    assert "Configuration error: Error parsing configuration file" in caplog.text
 
 def test_main_real_sync(tmp_path, monkeypatch, capsys):
     # Setup real source and destination
