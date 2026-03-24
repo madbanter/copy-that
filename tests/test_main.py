@@ -109,8 +109,8 @@ destination_base: {dest_dir}
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    assert "[DRY RUN] Copy" in captured.err
-    assert "Sync Summary" in captured.err
+    assert "[DRY RUN] Would copy" in captured.err
+    assert "Sync Summary (DRY RUN)" in captured.err
     assert not dest_dir.exists()
 
 def test_cli_overrides(tmp_path, monkeypatch, capsys):
@@ -138,8 +138,8 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     assert f"Source: {source_dir.resolve()}" in captured.err
     assert f"Destination: {dest_dir.resolve()}" in captured.err
     assert "Mode: mirror" in captured.err
-    assert "[DRY RUN] Copy" in captured.err
-    assert "Sync Summary" in captured.err
+    assert "[DRY RUN] Would copy" in captured.err
+    assert "Sync Summary (DRY RUN)" in captured.err
 
 def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
     # Mock sys.argv to point to a non-existent source
@@ -278,7 +278,7 @@ def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
     
     captured = capsys.readouterr()
     # Default folder_format is %Y%m%d. Logger output includes 'dest/' prefix because it's relative to dest.parent
-    assert f"[DRY RUN] Copy: {filename} -> dest/20230101/{filename}" in captured.err
+    assert f"[DRY RUN] Would copy: {filename} -> dest/20230101/{filename}" in captured.err
 
 def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
@@ -366,7 +366,7 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    assert "[DRY RUN] Skip (verification successful)" in captured.err
+    assert "[DRY RUN] Would skip (verification successful)" in captured.err
 
     # Now modify the destination to fail verification
     (dest_dir / today / "test.jpg").write_text("different")
@@ -376,7 +376,7 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    assert "[DRY RUN] Overwrite (failed verification)" in captured.err
+    assert "[DRY RUN] Would overwrite (failed verification)" in captured.err
 
 def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
     today = datetime.datetime.now().strftime("%Y%m%d")
@@ -402,7 +402,7 @@ def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    assert "[DRY RUN] Rename to test_1.jpg" in captured.err
+    assert "[DRY RUN] Would rename to test_1.jpg" in captured.err
 
 def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
     today = datetime.datetime.now().strftime("%Y%m%d")
