@@ -53,7 +53,7 @@ def format_bytes(size: int) -> str:
         size /= 1024
     return f"{size:.2f} PB"
 
-def print_summary(results: List[FileResult], elapsed_time: float):
+def print_summary(results: List[FileResult], elapsed_time: float, dry_run: bool = False):
     """Print a detailed summary of the sync operation."""
     total_files = len(results)
     copied = [r for r in results if r.status in (SyncStatus.COPIED, SyncStatus.OVERWRITTEN, SyncStatus.RENAMED)]
@@ -65,15 +65,18 @@ def print_summary(results: List[FileResult], elapsed_time: float):
 
     # Use logger.info for consistency, the filter will allow these through
     logger.info("-" * 40)
-    logger.info("Sync Summary")
+    logger.info(f"Sync Summary {'(DRY RUN)' if dry_run else ''}")
     logger.info("-" * 40)
     logger.info(f"Total Files Processed: {total_files}")
-    logger.info(f"  - Copied:            {len(copied)}")
-    logger.info(f"  - Skipped:           {len(skipped)}")
-    logger.info(f"  - Failed:            {len(failed)}")
-    logger.info(f"Total Data:            {format_bytes(total_bytes)}")
+    logger.info(f"  - {'Would copy' if dry_run else 'Copied'}:            {len(copied)}")
+    logger.info(f"  - {'Would skip' if dry_run else 'Skipped'}:           {len(skipped)}")
+    logger.info(f"  - {'Would fail' if dry_run else 'Failed'}:            {len(failed)}")
+    
+    data_label = "Data to transfer" if dry_run else "Total Data"
+    logger.info(f"{data_label:23}: {format_bytes(total_bytes)}")
     logger.info(f"Elapsed Time:          {elapsed_time:.2f} seconds")
-    if total_bytes > 0:
+    
+    if not dry_run and total_bytes > 0:
         logger.info(f"Average Speed:         {format_bytes(int(speed))}/s")
     logger.info("-" * 40)
 
