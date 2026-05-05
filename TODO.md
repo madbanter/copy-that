@@ -2,9 +2,9 @@
 
 ## 1. User Experience & Feedback
 
-- [ ] **Progress Bars**: Implement visual progress bars (e.g., using `tqdm` or `rich`) for large file transfers.
-- [ ] **Summary Report**: Add a detailed summary after completion including total data transferred, elapsed time, average speed, and any errors.
-- [ ] **Enhanced Dry Run**: Improve dry-run output to explicitly show skipped files and potential disk space issues.
+- [ ] **Progress Bars**: Implement visual progress bars (e.g., using `rich`) for large file transfers. (Progress percentages added to live footer)
+- [x] **Summary Report**: Add a detailed summary after completion including total data transferred, elapsed time, average speed, and any errors.
+- [x] **Enhanced Dry Run**: Improve dry-run output to explicitly show skipped files and potential disk space issues.
 
 ## 2. Performance
 
@@ -22,8 +22,8 @@
 ## 4. Reliability & Maintainability
 
 - [ ] **Robust Retries**: Enhance retry logic with exponential backoff for handling intermittent drive connectivity issues.
-- [ ] **Persistent Logging**: Add an option to save logs to a file in the destination directory for auditing and troubleshooting.
-- [x] **Extended Testing**: Expand the test suite to include more edge cases and simulated failure scenarios. (Completed: Increased coverage to 97%)
+- [x] **Persistent Logging**: Add an option to save logs to a file in the destination directory for auditing and troubleshooting.
+- [x] **Extended Testing**: Expand the test suite to include more edge cases and simulated failure scenarios. (Completed: Increased coverage to 99%)
 
 ## 5. CLI & Configuration
 

@@ -9,7 +9,7 @@ source_directory: "~/Pictures/Source"
 destination_base: "~/Pictures/Organized"
 
 # --- Organization Settings ---
-# Organization mode: 
+# Organization mode:
 #   - 'date': Groups files into subfolders based on a date.
 #   - 'mirror': Preserves the relative folder structure from the source.
 organization_mode: "date"
@@ -43,9 +43,9 @@ include_extensions:
 
 # --- Conflict & Reliability ---
 # What to do if a file already exists at the destination:
-#   - 'skip': Leave the existing file alone. 
-#            NOTE: If a 'verification_method' is enabled, it will verify the 
-#            existing file first and only skip if it matches the source. 
+#   - 'skip': Leave the existing file alone.
+#            NOTE: If a 'verification_method' is enabled, it will verify the
+#            existing file first and only skip if it matches the source.
 #            Otherwise, it will re-copy (overwrite) the file.
 #   - 'overwrite': Replace the existing file.
 #   - 'rename': Copy with a numeric suffix (e.g., photo_1.jpg).
@@ -68,12 +68,13 @@ pre_sync_space_check: false
 
 # --- Logging & Output ---
 # Control what is printed to the console:
-#   - 'minimal': Only log errors.
-#   - 'normal': Errors plus unusual events (skips, overwrites, renames).
-#   - 'verbose': All activity (every file processed).
+#   - 'minimal': Only log fatal errors.
+#   - 'normal': Default feedback (live footer summary, single-line logs, and final warnings/errors report).
+#   - 'verbose': All activity plus debug-level diagnostic logs.
 output_verbosity: "normal"
 
-# Optional path to a log file for a full audit trail (records everything at DEBUG level).
+# Optional path to a log file for a full audit trail.
+# NOTE: In dry-run mode, this file is only written if verbosity is 'verbose'.
 # Use 'null' to disable file logging.
 log_file: null
 
@@ -89,4 +90,5 @@ log_backup_count: 5
 max_workers: null
 
 # Buffer size in bytes for copying and hashing (default: 1MB).
+# Values between 1KB and 128MB are supported.
 buffer_size: 1048576

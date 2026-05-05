@@ -49,6 +49,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pytest-cov" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "typer" },
 ]
 
@@ -62,6 +63,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rich", specifier = ">=14.3.3" },
     { name = "typer", specifier = ">=0.24.1" },
 ]
 

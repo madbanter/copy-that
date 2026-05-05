@@ -1,15 +1,24 @@
+from __future__ import annotations
 import logging
 import sys
 import shutil
 import time
 import os
+import signal
+from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional, List
+from typing import Iterable, Optional, List, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
 
 import typer
 from typing_extensions import Annotated
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+from rich.highlighter import ReprHighlighter
 
 from copy_that.config import merge_config, Config, get_default_log_file
 from copy_that.discovery import discover_files
@@ -18,30 +27,106 @@ from copy_that.processor import copy_file, SyncStatus, FileResult
 
 app = typer.Typer(help="Copy and organize files from source to destination.")
 logger = logging.getLogger("copy_that")
+console = Console(stderr=True)
+highlighter = ReprHighlighter()
 
-class OutputFilter(logging.Filter):
-    """
-    Filter to control console output verbosity.
-    """
-    def __init__(self, verbosity: str):
+# Global reference for synchronous UI refresh
+_live_ui = None
+_last_ui_update = 0
+
+class SyncStats:
+    def __init__(self, total_expected: int = 0):
+        self.total_expected = total_expected
+        self.processed = 0
+        self.transferred_count = 0
+        self.skipped_count = 0
+        self.failed_count = 0
+        self.retried_count = 0
+        self.total_bytes = 0
+
+    def update(self, result: FileResult):
+        self.processed += 1
+        if result.status in (SyncStatus.COPIED, SyncStatus.OVERWRITTEN, SyncStatus.RENAMED):
+            self.transferred_count += 1
+        elif result.status == SyncStatus.SKIPPED:
+            self.skipped_count += 1
+        elif result.status == SyncStatus.FAILED:
+            self.failed_count += 1
+        
+        if result.retried:
+            self.retried_count += 1
+            
+        self.total_bytes += result.bytes_transferred
+
+class AtomicGridHandler(logging.Handler):
+    """Custom Handler that uses a 3-column Grid and triggers synchronous UI refreshes."""
+    def __init__(self, console: Console):
         super().__init__()
-        self.verbosity = verbosity
+        self.console = console
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        # 1. Summary report and critical errors always show
-        msg = record.getMessage()
-        if msg.startswith("-") or msg.startswith("Sync Summary") or msg.startswith("Total Files") or record.levelno >= logging.ERROR:
-            return True
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < self.level:
+            return
 
-        # 2. Apply verbosity levels
-        if self.verbosity == "minimal":
-            return record.levelno >= logging.ERROR
-        elif self.verbosity == "normal":
-            # Normal shows INFO and above (standard behavior)
-            return record.levelno >= logging.INFO
+        level_styles = {
+            logging.DEBUG: "dim",
+            logging.INFO: "bold cyan",
+            logging.WARNING: "bold yellow",
+            logging.ERROR: "bold red",
+            logging.CRITICAL: "bold white on red"
+        }
+        level_style = level_styles.get(record.levelno, "white")
+        
+        # Determine the message to show on console
+        filename = getattr(record, "filename_only", None)
+        status = getattr(record, "status_text", None)
+        is_dry_run = getattr(record, "is_dry_run", False)
+        
+        # Available width for the message column
+        # Level column: 10, Time column: 10, Padding: 2*1, Buffer: 2
+        overhead = 10 + 10 + 2 + 2
+        max_msg_width = self.console.width - overhead
+        if max_msg_width < 10: max_msg_width = 10
+        
+        if filename and status:
+            dry_tag = "[DRY RUN] " if is_dry_run else ""
+            prefix = f"{dry_tag}{status}: "
+            
+            # Truncate filename to fit remaining space
+            max_filename_len = max_msg_width - len(prefix)
+            if max_filename_len < 5: max_filename_len = 5
+            
+            truncated_filename = truncate_middle(filename, max_filename_len)
+            msg_str = f"{prefix}{truncated_filename}"
+        else:
+            msg_str = record.getMessage()
+            # ONLY truncate if it's a file action status or if it's exceptionally long
+            if len(msg_str) > max_msg_width and max_msg_width > 20:
+                msg_str = truncate_middle(msg_str, max_msg_width)
 
-        # verbose shows everything including DEBUG
-        return True
+        # Create a 3-column grid for perfect alignment. 
+        # expand=True + ratio=1 on the message column ensures it takes all available space
+        # and stays left-aligned, pinning the timestamp to the far right.
+        grid = Table.grid(padding=(0, 1), expand=True)
+        grid.add_column(width=12, justify="left", no_wrap=True) # Level
+        grid.add_column(justify="left", ratio=1, no_wrap=True, overflow="ellipsis") # Message
+        grid.add_column(width=10, justify="right", no_wrap=True) # Timestamp
+
+        level_text = Text(f"{record.levelname}", style=level_style)
+        message_text = highlighter(msg_str)
+        time_str = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+        time_text = Text(time_str, style="dim")
+        
+        grid.add_row(level_text, message_text, time_text)
+        
+        self.console.print(grid)
+        
+        # Throttled Synchronous Refresh
+        global _last_ui_update
+        now = time.perf_counter()
+        if _live_ui and (now - _last_ui_update) > 0.1:
+            _live_ui.refresh()
+            _last_ui_update = now
 
 def format_bytes(size: int) -> str:
     """Format bytes into human-readable string."""
@@ -53,110 +138,118 @@ def format_bytes(size: int) -> str:
         size /= 1024
     return f"{size:.2f} PB"
 
-def print_summary(results: List[FileResult], elapsed_time: float, dry_run: bool = False):
-    """Print a detailed summary of the sync operation."""
-    total_files = len(results)
-    copied = [r for r in results if r.status in (SyncStatus.COPIED, SyncStatus.OVERWRITTEN, SyncStatus.RENAMED)]
-    skipped = [r for r in results if r.status == SyncStatus.SKIPPED]
-    failed = [r for r in results if r.status == SyncStatus.FAILED]
+def truncate_middle(text: str, max_length: int) -> str:
+    """Truncate the middle of a string with '...' if it exceeds max_length."""
+    if len(text) <= max_length:
+        return text
+    if max_length <= 3:
+        return "..."[:max_length]
+    
+    remaining = max_length - 3
+    left_len = remaining // 2
+    right_len = remaining - left_len
+    
+    return f"{text[:left_len]}...{text[-right_len:] if right_len > 0 else ''}"
 
-    total_bytes = sum(r.bytes_transferred for r in results)
-    speed = total_bytes / elapsed_time if elapsed_time > 0 else 0
+def print_warnings_and_errors(results: List[FileResult]):
+    """Print full details of any warnings (skipped, renamed) or errors (failed)."""
+    warnings = [r for r in results if r.status in (SyncStatus.SKIPPED, SyncStatus.RENAMED)]
+    errors = [r for r in results if r.status == SyncStatus.FAILED]
+    
+    if warnings:
+        console.print("\n[bold yellow]Warnings:[/bold yellow]")
+        for r in warnings:
+            console.print(f"[yellow]{r.status.value.upper()}: {r.source_path} -> {r.destination_path}[/yellow]")
 
-    # Use logger.info for consistency, the filter will allow these through
-    logger.info("-" * 40)
-    logger.info(f"Sync Summary {'(DRY RUN)' if dry_run else ''}")
-    logger.info("-" * 40)
-    logger.info(f"Total Files Processed: {total_files}")
-    logger.info(f"  - {'Would copy' if dry_run else 'Copied'}:            {len(copied)}")
-    logger.info(f"  - {'Would skip' if dry_run else 'Skipped'}:           {len(skipped)}")
-    logger.info(f"  - {'Would fail' if dry_run else 'Failed'}:            {len(failed)}")
+    if errors:
+        console.print("\n[bold red]Errors:[/bold red]")
+        for r in errors:
+            msg = f"[red]FAILED: {r.source_path} -> {r.destination_path}[/red]"
+            if r.error_message:
+                msg += f"\n  [dim]Error: {r.error_message}[/dim]"
+            console.print(msg)
+
+def print_summary(stats: SyncStats, results: List[FileResult], elapsed_time: float, dry_run: bool = False):
+    """Print a detailed summary of the sync operation using Rich."""
+    speed = stats.total_bytes / elapsed_time if elapsed_time > 0 else 0
+
+    title = "Sync Summary"
+    if dry_run:
+        title += " (DRY RUN)"
+
+    table = Table(title=title, show_header=False, box=None, padding=(0, 2))
+    table.add_row("Total Files Processed:", str(stats.processed))
+    table.add_row(f"{'Would copy' if dry_run else 'Copied'}:", str(stats.transferred_count), style="green")
+    table.add_row(f"{'Would skip' if dry_run else 'Skipped'}:", str(stats.skipped_count), style="yellow")
+    table.add_row(f"{'Would fail' if dry_run else 'Failed'}:", str(stats.failed_count), style="red")
+    table.add_row("Items Retried:", str(stats.retried_count), style="cyan")
     
     data_label = "Data to transfer" if dry_run else "Total Data"
-    logger.info(f"{data_label:23}: {format_bytes(total_bytes)}")
-    logger.info(f"Elapsed Time:          {elapsed_time:.2f} seconds")
+    table.add_row(f"{data_label}:", format_bytes(stats.total_bytes))
+    table.add_row("Elapsed Time:", f"{elapsed_time:.2f} seconds")
     
-    if not dry_run and total_bytes > 0:
-        logger.info(f"Average Speed:         {format_bytes(int(speed))}/s")
-    logger.info("-" * 40)
+    if not dry_run and stats.total_bytes > 0:
+        table.add_row("Average Speed:", f"{format_bytes(int(speed))}/s")
 
+    console.print("\n")
+    console.print(Panel(table, expand=False, border_style="blue"))
+
+    failed = [r for r in results if r.status == SyncStatus.FAILED]
     if failed:
-        logger.error("Failures:")
+        console.print("\n[bold red]Failures:[/bold red]")
         for r in failed:
-            logger.error(f"  - {r.source_path.name}: {r.error_message}")
-        logger.info("-" * 40)
+            console.print(f"  - [red]{r.source_path.name}[/red]: {r.error_message}")
+        console.print("-" * 40)
+
+class LiveSummaryRenderable:
+    """Renderable for the live-updated summary footer."""
+    def __init__(self, stats: SyncStats, start_time: float, dry_run: bool):
+        self.stats = stats
+        self.start_time = start_time
+        self.dry_run = dry_run
+
+    def __rich__(self) -> Table:
+        elapsed = time.perf_counter() - self.start_time
+        w = console.width - 4
+        table = Table(box=None, padding=(0, 2), width=w if w > 0 else None)
+        table.add_column("Progress", style="magenta", no_wrap=True, overflow="crop")
+        table.add_column("Processed", style="cyan", no_wrap=True, overflow="crop")
+        if not self.dry_run:
+            table.add_column("Transferred", style="green", no_wrap=True, overflow="crop")
+        table.add_column("Errors", style="red", no_wrap=True, overflow="crop")
+        table.add_column("Elapsed", style="blue", no_wrap=True, overflow="crop")
+        
+        percentage = (self.stats.processed / self.stats.total_expected * 100) if self.stats.total_expected > 0 else 100
+        
+        row = [
+            f"{percentage:>6.1f}%",
+            f"{self.stats.processed}/{self.stats.total_expected}{' (DRY RUN)' if self.dry_run else ''}"
+        ]
+        if not self.dry_run:
+            row.append(f"{self.stats.transferred_count}")
+        row.append(f"{self.stats.failed_count}")
+        row.append(f"{elapsed:.1f}s")
+        table.add_row(*row)
+        return table
 
 def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
-    """
-    Perform a 'Best Effort' disk space check before copying.
-    If conflict_policy is 'skip', it ignores files that already exist at the destination.
-    Note: This consumes the provided iterable.
-    """
+    """Perform a 'Best Effort' disk space check before copying."""
     total_size_needed = 0
     for source_file in source_files:
-        dest_file = generate_destination_path(
-            source_file,
-            config.source_directory,
-            config.destination_base,
-            config.folder_format,
-            config.organization_mode,
-            config.date_source,
-            config.filename_date_format
-        )
-
-        if config.conflict_policy == "skip" and dest_file.exists():
-            continue
-
+        dest_file = generate_destination_path(source_file, config.source_directory, config.destination_base, config.folder_format, config.organization_mode, config.date_source, config.filename_date_format)
+        if config.conflict_policy == "skip" and dest_file.exists(): continue
         total_size_needed += source_file.stat().st_size
-
     check_path = config.destination_base
-    while not check_path.exists() and check_path.parent != check_path:
-        check_path = check_path.parent
-
+    while not check_path.exists() and check_path.parent != check_path: check_path = check_path.parent
     free_space = shutil.disk_usage(check_path).free
-
     if total_size_needed > free_space:
         mb = 1024 * 1024
-        logger.warning(
-            f"Possible insufficient disk space! "
-            f"Required: {total_size_needed / mb:.2f} MB, "
-            f"Available: {free_space / mb:.2f} MB"
-        )
+        msg = f"Possible insufficient disk space! Required: {total_size_needed / mb:.2f} MB, Available: {free_space / mb:.2f} MB"
+        logger.warning(msg)
 
 def process_single_file(source_file: Path, config: Config) -> FileResult:
-    """
-    Generate path and copy a single file. Returns FileResult.
-    """
-    dest_file = generate_destination_path(
-        source_file,
-        config.source_directory,
-        config.destination_base,
-        config.folder_format,
-        config.organization_mode,
-        config.date_source,
-        config.filename_date_format
-    )
-
-    result = copy_file(
-        source_file,
-        dest_file,
-        config.conflict_policy,
-        config.verification_method,
-        config.verification_failure_behavior,
-        buffer_size=config.buffer_size
-    )
-
-    # Success logs are INFO, filter handles them
-    if result.status == SyncStatus.COPIED:
-        logger.info(f"Copied {source_file.name} -> {result.destination_path.relative_to(config.destination_base.parent)}")
-    elif result.status == SyncStatus.FAILED:
-        # Failed logs are already handled inside copy_file (ERROR)
-        pass
-    else:
-        # Renamed, Overwritten, Skipped are already handled inside copy_file (WARNING)
-        pass
-
-    return result
+    dest_file = generate_destination_path(source_file, config.source_directory, config.destination_base, config.folder_format, config.organization_mode, config.date_source, config.filename_date_format)
+    return copy_file(source_file, dest_file, config.conflict_policy, config.verification_method, config.verification_failure_behavior, buffer_size=config.buffer_size)
 
 @app.command()
 def sync(
@@ -166,7 +259,7 @@ def sync(
     mode: Annotated[Optional[str], typer.Option("--mode", help="Organization mode (date, mirror)")] = None,
     format: Annotated[Optional[str], typer.Option("--format", help="Folder format for date mode")] = None,
     date_source: Annotated[Optional[str], typer.Option("--date-source", help="Date source (creation, modification, filename)")] = None,
-    filename_date_format: Annotated[Optional[str], typer.Option("--filename-date-format", help="Date format in filename (for date-source=filename)")] = None,
+    filename_date_format: Annotated[Optional[str], typer.Option("--filename-date-format", help="Date format in filename (for_date-source=filename)")] = None,
     extensions: Annotated[Optional[List[str]], typer.Option("--ext", help="Include extensions (can be repeated)")] = None,
     conflict: Annotated[Optional[str], typer.Option("--conflict", help="Conflict policy (skip, overwrite, rename)")] = None,
     verify: Annotated[Optional[str], typer.Option("--verify", help="Verification method (none, size, md5, sha1)")] = None,
@@ -180,80 +273,58 @@ def sync(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be copied without actually copying")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Shortcut for --verbosity verbose")] = False,
 ):
-    """
-    Sync and organize files from source to destination.
-    """
-    # Determine log path
+    """Sync and organize files from source to destination."""
     effective_log_file = log_file
-    if log and effective_log_file is None:
-        effective_log_file = get_default_log_file()
-
-    # Merge CLI options into a single config object
+    if log and effective_log_file is None: effective_log_file = get_default_log_file()
     cli_overrides = {
-        "source_directory": source,
-        "destination_base": dest,
-        "organization_mode": mode,
-        "folder_format": format,
-        "date_source": date_source,
-        "filename_date_format": filename_date_format,
-        "include_extensions": extensions,
-        "conflict_policy": conflict,
-        "verification_method": verify,
-        "verification_failure_behavior": verify_behavior,
-        "pre_sync_space_check": space_check,
-        "max_workers": workers,
-        "buffer_size": buffer_size,
-        "output_verbosity": "verbose" if verbose else output_verbosity,
-        "log_file": effective_log_file,
+        "source_directory": source, "destination_base": dest, "organization_mode": mode,
+        "folder_format": format, "date_source": date_source, "filename_date_format": filename_date_format,
+        "include_extensions": extensions, "conflict_policy": conflict, "verification_method": verify,
+        "verification_failure_behavior": verify_behavior, "pre_sync_space_check": space_check,
+        "max_workers": workers, "buffer_size": buffer_size,
+        "output_verbosity": "verbose" if verbose else output_verbosity, "log_file": effective_log_file,
     }
 
-    try:
-        config = merge_config(config_path, **cli_overrides)
+    try: config = merge_config(config_path, **cli_overrides)
     except Exception as e:
-        # Fallback logging if config fails
         logging.basicConfig(level=logging.ERROR)
         logging.error(f"Configuration error: {e}")
         sys.exit(1)
 
-    # Advanced Logging Setup
+    # Aggressively clear ALL handlers from ALL loggers in the entire system
+    logging.root.handlers = []
+    for name in list(logging.root.manager.loggerDict.keys()):
+        lgr = logging.getLogger(name)
+        lgr.handlers = []
+        lgr.propagate = True
+    
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG) # Allow everything through to handlers
+    root_logger.setLevel(logging.INFO)
 
-    # Clear existing handlers if any
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+    rich_handler = AtomicGridHandler(console=console)
+    if config.output_verbosity == "minimal": rich_handler.setLevel(logging.ERROR)
+    elif config.output_verbosity == "verbose": rich_handler.setLevel(logging.DEBUG)
+    else: rich_handler.setLevel(logging.INFO)
+    
+    # Attach only to our specific logger
+    main_logger = logging.getLogger("copy_that")
+    main_logger.addHandler(rich_handler)
+    main_logger.propagate = True
 
-    # 1. Console Handler
-    console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    console_handler.addFilter(OutputFilter(config.output_verbosity))
-    root_logger.addHandler(console_handler)
-
-    # 2. Optional Audit File Handler
-    if config.log_file:
+    if config.log_file and (not dry_run or config.output_verbosity == "verbose"):
         try:
-            # Ensure parent directory exists
             log_dir = config.log_file.parent
             log_dir.mkdir(parents=True, exist_ok=True)
-
-            # Proactive check: Can we write to this directory?
-            # RotatingFileHandler might fail later during rollover if permissions are weird.
-            if not os.access(log_dir, os.W_OK):
-                raise PermissionError(f"Directory not writable: {log_dir}")
-
-            file_handler = RotatingFileHandler(
-                config.log_file,
-                maxBytes=config.max_log_size,
-                backupCount=config.log_backup_count
-            )
+            if not os.access(log_dir, os.W_OK): raise PermissionError(f"Directory not writable: {log_dir}")
+            file_handler = RotatingFileHandler(config.log_file, maxBytes=config.max_log_size, backupCount=config.log_backup_count)
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
             root_logger.addHandler(file_handler)
             logger.debug(f"Audit log initialized at {config.log_file}")
-        except Exception as e:
-            # Non-fatal: Log to stderr and continue
-            print(f"WARNING: Could not initialize log file '{config.log_file}': {e}", file=sys.stderr)
+        except Exception as e: console.print(f"[yellow]WARNING: Could not initialize log file: {e}[/yellow]")
+
+    # UI VERSION 7 Verification
+    logger.debug("[UI VERSION 7] - Synchronous Refresh + Throttle Active")
 
     logger.info(f"Source: {config.source_directory}")
     logger.info(f"Destination: {config.destination_base}")
@@ -265,73 +336,85 @@ def sync(
 
     if config.pre_sync_space_check:
         logger.info("Performing pre-sync disk space check...")
-        space_check_generator = discover_files(config.source_directory, config.include_extensions)
-        perform_space_check(space_check_generator, config)
+        perform_space_check(discover_files(config.source_directory, config.include_extensions), config)
 
-    # Discover files
     files_to_sync = list(discover_files(config.source_directory, config.include_extensions))
     results: List[FileResult] = []
+    stats = SyncStats(total_expected=len(files_to_sync))
     start_time = time.perf_counter()
 
-    if dry_run:
-        from copy_that.processor import verify_copy, get_unique_path
-        for source_file in files_to_sync:
-            dest_file = generate_destination_path(
-                source_file,
-                config.source_directory,
-                config.destination_base,
-                config.folder_format,
-                config.organization_mode,
-                config.date_source,
-                config.filename_date_format
-            )
-
-            status = SyncStatus.COPIED
-            bytes_transferred = source_file.stat().st_size
-            action = "would copy"
-            level = logging.INFO
-
-            if dest_file.exists():
-                level = logging.WARNING
-                if config.conflict_policy == "skip":
-                    if config.verification_method == "none":
-                        action = "would skip (exists)"
-                        status = SyncStatus.SKIPPED
-                        bytes_transferred = 0
-                    else:
-                        if verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size):
-                            action = "would skip (verification successful)"
+    from rich.live import Live
+    global _live_ui
+    _live_ui = Live(LiveSummaryRenderable(stats, start_time, dry_run), console=console, auto_refresh=False)
+    
+    with _live_ui:
+        if dry_run:
+            from copy_that.processor import verify_copy, get_unique_path
+            for source_file in files_to_sync:
+                dest_file = generate_destination_path(source_file, config.source_directory, config.destination_base, config.folder_format, config.organization_mode, config.date_source, config.filename_date_format)
+                status = SyncStatus.COPIED
+                level = logging.INFO
+                if dest_file.exists():
+                    level = logging.WARNING
+                    if config.conflict_policy == "skip":
+                        if config.verification_method == "none":
                             status = SyncStatus.SKIPPED
-                            bytes_transferred = 0
                         else:
-                            action = "would overwrite (failed verification)"
-                            status = SyncStatus.OVERWRITTEN
-                elif config.conflict_policy == "overwrite":
-                    action = "would overwrite"
-                    status = SyncStatus.OVERWRITTEN
-                elif config.conflict_policy == "rename":
-                    unique_dest = get_unique_path(dest_file)
-                    action = f"would rename to {unique_dest.name}"
-                    status = SyncStatus.RENAMED
-                    dest_file = unique_dest
+                            if verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size):
+                                status = SyncStatus.SKIPPED
+                            else:
+                                status = SyncStatus.OVERWRITTEN
+                    elif config.conflict_policy == "overwrite":
+                        status = SyncStatus.OVERWRITTEN
+                    elif config.conflict_policy == "rename":
+                        dest_file = get_unique_path(dest_file)
+                        status = SyncStatus.RENAMED
 
-            logger.log(level, f"[DRY RUN] {action.capitalize()}: {source_file.name} -> {dest_file.relative_to(config.destination_base.parent)}")
-            results.append(FileResult(status, source_file, dest_file, bytes_transferred=bytes_transferred))
-    else:
-        # Concurrent copying
-        with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
-            future_to_file = {
-                executor.submit(process_single_file, source_file, config): source_file
-                for source_file in files_to_sync
-            }
+                status_text = status.value.capitalize()
+                logger.log(
+                    level, 
+                    f"[DRY RUN] {status_text}: {source_file} -> {dest_file}",
+                    extra={
+                        "filename_only": source_file.name,
+                        "status_text": status_text,
+                        "is_dry_run": True
+                    }
+                )
+                result = FileResult(status, source_file, dest_file, bytes_transferred=source_file.stat().st_size if status != SyncStatus.SKIPPED else 0)
+                results.append(result)
+                stats.update(result)
+        else:
+            with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
+                future_to_file = {executor.submit(process_single_file, f, config): f for f in files_to_sync}
+                for future in as_completed(future_to_file):
+                    result = future.result()
+                    status_text = result.status.value.capitalize()
+                    msg = f"{status_text}: {result.source_path} -> {result.destination_path}"
+                    
+                    if result.status == SyncStatus.COPIED:
+                        logger.info(msg, extra={"filename_only": result.source_path.name, "status_text": status_text})
+                    elif result.status == SyncStatus.FAILED:
+                        logger.error(
+                            f"Failed: {result.source_path} - {result.error_message}", 
+                            extra={"filename_only": result.source_path.name, "status_text": "Failed"}
+                        )
+                    else:
+                        logger.warning(msg, extra={"filename_only": result.source_path.name, "status_text": status_text})
+                    
+                    results.append(result)
+                    stats.update(result)
 
-            for future in as_completed(future_to_file):
-                results.append(future.result())
-
+    _live_ui = None
     end_time = time.perf_counter()
-    print_summary(results, end_time - start_time, dry_run=dry_run)
+    print_warnings_and_errors(results)
+    print_summary(stats, results, end_time - start_time, dry_run=dry_run)
 
 def main():
+    def signal_handler(sig, frame):
+        sys.stdout.write("\033[r\033[?25h")
+        sys.stdout.flush()
+        sys.exit(0)
+    signal.signal(signal.SIGINT, signal_handler)
     app()
 
 if __name__ == "__main__":

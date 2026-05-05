@@ -24,6 +24,7 @@ class FileResult:
     destination_path: Path
     bytes_transferred: int = 0
     error_message: Optional[str] = None
+    retried: bool = False
 
 def calculate_checksum(path: Path, algorithm: str, buffer_size: int = 1024 * 1024) -> str:
     """
@@ -93,23 +94,19 @@ def copy_file(
     if destination.exists():
         if conflict_policy == "skip":
             if verification_method == "none":
-                logger.warning(f"Skipping existing file: {destination.name}")
                 return FileResult(SyncStatus.SKIPPED, source, destination)
             else:
                 # Integrity-aware skip: Verify the existing file first
                 if verify_copy(source, destination, verification_method, buffer_size=buffer_size):
-                    logger.warning(f"Skipping (verification successful): {destination.name}")
                     return FileResult(SyncStatus.SKIPPED, source, destination)
                 else:
-                    logger.warning(f"Existing file {destination.name} failed verification. Re-copying...")
+                    logger.debug(f"Existing file {destination.name} failed verification. Re-copying...")
                     status = SyncStatus.OVERWRITTEN
                     # Proceed to copy (overwrite)
         elif conflict_policy == "overwrite":
-            logger.warning(f"Overwriting file: {destination.name}")
             status = SyncStatus.OVERWRITTEN
         elif conflict_policy == "rename":
             final_destination = get_unique_path(destination)
-            logger.warning(f"Renaming to: {final_destination.name}")
             status = SyncStatus.RENAMED
 
     # Create parent directories if they don't exist
@@ -132,8 +129,8 @@ def copy_file(
     # Perform verification
     if not verify_copy(source, final_destination, verification_method, buffer_size=buffer_size):
         if verification_failure_behavior == "retry" and _retry_count < 1:
-            logger.warning(f"Retrying copy for {source.name}...")
-            return copy_file(
+            logger.debug(f"Retrying copy for {source.name}...")
+            result = copy_file(
                 source, 
                 destination, 
                 conflict_policy="overwrite", # Use overwrite during retry
@@ -142,12 +139,14 @@ def copy_file(
                 buffer_size=buffer_size,
                 _retry_count=_retry_count + 1
             )
+            result.retried = True
+            return result
         elif verification_failure_behavior == "delete":
             logger.error(f"Deleting corrupted destination file: {final_destination}")
             final_destination.unlink(missing_ok=True)
             return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed and file deleted")
         elif verification_failure_behavior == "ignore":
-            logger.warning(f"Verification failed for {final_destination.name}, but ignoring per config.")
+            logger.debug(f"Verification failed for {final_destination.name}, but ignoring per config.")
             return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy)
         else:
             return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed")

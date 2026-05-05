@@ -22,6 +22,10 @@ Optimized for photographers and media creators:
 - **Pre-flight Checks**: Optional disk space estimation and a comprehensive **Dry Run** mode to see results before any data is moved.
 
 ### Modern CLI Experience
+- **Clean Feedback**: Concise single-line console logging with automated filename truncation to prevent UI flickering.
+- **Rich Reporting**: Real-time live footer summary (with elapsed time) and a post-sync detailed report of any warnings or errors.
+- **Unified Logging**: Consistent logging across dry runs and actual executions, with full path details available in audit logs.
+- **Verbosity Control**: Three levels of verbosity (minimal, normal, verbose) to keep the console clean or provide deep technical context.
 - **Zero-Config Discovery**: Automatically searches for configuration in standard locations (`./config.yaml`, `~/.config/copy-that/`, etc.).
 - **Interactive Completions**: Full tab-completion support for `bash`, `zsh`, and `fish`.
 - **Global Accessibility**: Install once and run `copy-that` from any directory.
