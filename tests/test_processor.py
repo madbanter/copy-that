@@ -1,6 +1,7 @@
 import pytest
 import hashlib
 import shutil
+import time
 from pathlib import Path
 from unittest.mock import patch
 from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path, SyncStatus, FileResult
@@ -135,12 +136,14 @@ def test_copy_file_verification_failure_retry(tmp_path, monkeypatch, caplog):
     import copy_that.processor
     monkeypatch.setattr(copy_that.processor, "verify_copy", mock_verify)
     
-    with caplog.at_level("DEBUG"):
-        result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="retry")
+    # Disable delay for faster tests
+    with caplog.at_level("WARNING"):
+        result = copy_file(source_file, dest_file, verification_method="md5", verification_failure_behavior="retry", retry_base_delay=0)
 
-    assert result.status == SyncStatus.OVERWRITTEN
+    # In new implementation, it stays COPIED if it didn't exist at start
+    assert result.status == SyncStatus.COPIED
     assert result.retried is True
-    assert "Retrying copy" in caplog.text
+    assert "Retry attempt 1" in caplog.text
 
     assert dest_file.exists()
 
@@ -223,10 +226,6 @@ def test_copy_file_skip_with_verification_success(tmp_path, caplog):
     with caplog.at_level("DEBUG"):
         result = copy_file(source, dest, conflict_policy="skip", verification_method="size")
     assert result.status == SyncStatus.SKIPPED
-    # We removed the redundant warning entirely in Task 1, 
-    # so we shouldn't assert its presence here unless we specifically want to verify silence.
-    # Actually, the user asked to convert some context to debug, but I removed 
-    # "Skipping (verification successful)" entirely.
 
 def test_copy_file_skip_with_verification_failure(tmp_path, caplog):
     source = tmp_path / "source.txt"
@@ -260,6 +259,7 @@ def test_copy_file_failed_copy(tmp_path):
     source_file.write_text("data")
     dest_file = tmp_path / "dest.txt"
     
+    # We use os.replace now, but open() still happens first
     with patch("builtins.open", side_effect=PermissionError("Mocked write error")):
         result = copy_file(source_file, dest_file)
         
