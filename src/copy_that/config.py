@@ -48,6 +48,9 @@ class Config(BaseModel):
     log_backup_count: int = 5
     pre_sync_space_check: bool = False
     max_workers: Optional[int] = None
+    max_retries: int = Field(default=3, ge=0)
+    retry_base_delay: float = Field(default=1.0, ge=0)
+    retry_exponential_backoff: bool = True
     buffer_size: int = Field(default=1024 * 1024, ge=1024, le=128 * 1024 * 1024)
 
     @field_validator("include_extensions", mode="before")

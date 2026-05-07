@@ -334,6 +334,9 @@ def process_single_file(job: SyncJob, config: Config) -> FileResult:
         config.verification_method,
         config.verification_failure_behavior,
         buffer_size=config.buffer_size,
+        max_retries=config.max_retries,
+        retry_base_delay=config.retry_base_delay,
+        retry_exponential_backoff=config.retry_exponential_backoff
     )
 
 
@@ -402,6 +405,18 @@ def sync(
             "--buffer-size", help="Buffer size in bytes for copying and hashing"
         ),
     ] = None,
+    retries: Annotated[
+        Optional[int],
+        typer.Option("--retries", help="Max retries for transient errors"),
+    ] = None,
+    retry_delay: Annotated[
+        Optional[float],
+        typer.Option("--retry-delay", help="Base delay for retries in seconds"),
+    ] = None,
+    backoff: Annotated[
+        Optional[bool],
+        typer.Option("--backoff/--no-backoff", help="Enable/disable exponential backoff"),
+    ] = None,
     output_verbosity: Annotated[
         Optional[str],
         typer.Option("--verbosity", help="Output verbosity (minimal, normal, verbose)"),
@@ -442,6 +457,9 @@ def sync(
         "pre_sync_space_check": space_check,
         "max_workers": workers,
         "buffer_size": buffer_size,
+        "max_retries": retries,
+        "retry_base_delay": retry_delay,
+        "retry_exponential_backoff": backoff,
         "output_verbosity": "verbose" if verbose else output_verbosity,
         "log_file": effective_log_file,
     }

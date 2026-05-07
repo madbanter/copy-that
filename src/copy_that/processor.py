@@ -1,6 +1,9 @@
 import shutil
 import logging
 import hashlib
+import time
+import errno
+import os
 from pathlib import Path
 from typing import Optional, Literal
 from enum import Enum
@@ -74,6 +77,28 @@ def verify_copy(
         logger.error(f"Could not verify {destination.name} using {method}: {e}")
         return False # Fail-closed: Verification failed to complete, so assume the copy is potentially invalid
 
+def is_retryable_error(e: Exception) -> bool:
+    """
+    Determine if an OSError is transient and should be retried.
+    """
+    if not isinstance(e, OSError):
+        return False
+        
+    # List of errno values that are typically transient/retryable
+    retryable_errnos = {
+        errno.EIO,          # Input/output error
+        errno.ETIMEDOUT,     # Connection timed out
+        errno.EBUSY,        # Device or resource busy
+        errno.EAGAIN,       # Try again
+        errno.ENODEV,       # No such device (can happen with flaky USB)
+    }
+    
+    # Handle ECONNRESET if it's available (relevant for network mounts)
+    if hasattr(errno, "ECONNRESET"):
+        retryable_errnos.add(errno.ECONNRESET)
+        
+    return e.errno in retryable_errnos
+
 def copy_file(
     source: Path, 
     destination: Path, 
@@ -81,15 +106,23 @@ def copy_file(
     verification_method: VerificationMethod = "none",
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry",
     buffer_size: int = 1024 * 1024,
-    _retry_count: int = 0
+    max_retries: int = 3,
+    retry_base_delay: float = 1.0,
+    retry_exponential_backoff: bool = True
 ) -> FileResult:
     """
     Copy a file from source to destination with metadata preservation and verification.
-    Returns a FileResult object detailing the outcome.
+    Implements Atomic Writes (using .ct-tmp) and Robust Retries with exponential backoff.
     """
     final_destination = destination
     status = SyncStatus.COPIED
-    bytes_to_copy = source.stat().st_size
+    
+    try:
+        bytes_to_copy = source.stat().st_size
+    except OSError as e:
+        err_msg = f"Source file inaccessible: {e}"
+        logger.error(err_msg)
+        return FileResult(SyncStatus.FAILED, source, destination, error_message=err_msg)
 
     if destination.exists():
         if conflict_policy == "skip":
@@ -102,56 +135,73 @@ def copy_file(
                 else:
                     logger.debug(f"Existing file {destination.name} failed verification. Re-copying...")
                     status = SyncStatus.OVERWRITTEN
-                    # Proceed to copy (overwrite)
         elif conflict_policy == "overwrite":
             status = SyncStatus.OVERWRITTEN
         elif conflict_policy == "rename":
             final_destination = get_unique_path(destination)
             status = SyncStatus.RENAMED
 
-    # Create parent directories if they don't exist
+    # Atomic Write: Copy to a temporary file first
+    temp_destination = final_destination.with_suffix(final_destination.suffix + ".ct-tmp")
+    
+    # Create parent directories
     final_destination.parent.mkdir(parents=True, exist_ok=True)
     
-    try:
-        # Optimized Buffered I/O using copyfileobj
-        with open(source, "rb") as fsrc:
-            with open(final_destination, "wb") as fdst:
-                shutil.copyfileobj(fsrc, fdst, length=buffer_size)
-        
-        # Preserve metadata (mtime, atime, flags, etc.)
-        shutil.copystat(source, final_destination)
-        
-    except Exception as e:
-        err_msg = str(e)
-        logger.error(f"Failed to copy {source} to {final_destination}: {err_msg}")
-        return FileResult(SyncStatus.FAILED, source, final_destination, error_message=err_msg)
+    last_error_msg = None
+    retried = False
 
-    # Perform verification
-    if not verify_copy(source, final_destination, verification_method, buffer_size=buffer_size):
-        if verification_failure_behavior == "retry" and _retry_count < 1:
-            logger.debug(f"Retrying copy for {source.name}...")
-            result = copy_file(
-                source, 
-                destination, 
-                conflict_policy="overwrite", # Use overwrite during retry
-                verification_method=verification_method,
-                verification_failure_behavior=verification_failure_behavior,
-                buffer_size=buffer_size,
-                _retry_count=_retry_count + 1
-            )
-            result.retried = True
-            return result
-        elif verification_failure_behavior == "delete":
-            logger.error(f"Deleting corrupted destination file: {final_destination}")
-            final_destination.unlink(missing_ok=True)
-            return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed and file deleted")
-        elif verification_failure_behavior == "ignore":
-            logger.debug(f"Verification failed for {final_destination.name}, but ignoring per config.")
-            return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy)
-        else:
-            return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed")
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            retried = True
+            delay = retry_base_delay * (2 ** (attempt - 1) if retry_exponential_backoff else 1)
+            logger.warning(f"Retry attempt {attempt}/{max_retries} for {source.name} after {delay:.1f}s delay...")
+            time.sleep(delay)
 
-    return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy)
+        try:
+            # Perform Copy to temp file
+            with open(source, "rb") as fsrc:
+                with open(temp_destination, "wb") as fdst:
+                    shutil.copyfileobj(fsrc, fdst, length=buffer_size)
+            
+            # Preserve metadata on the temp file
+            shutil.copystat(source, temp_destination)
+            
+            # Perform verification on the temp file
+            if not verify_copy(source, temp_destination, verification_method, buffer_size=buffer_size):
+                if verification_failure_behavior == "retry":
+                    last_error_msg = "Verification failed"
+                    temp_destination.unlink(missing_ok=True)
+                    continue # Try again
+                elif verification_failure_behavior == "delete":
+                    temp_destination.unlink(missing_ok=True)
+                    return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed and file deleted")
+                elif verification_failure_behavior == "ignore":
+                    logger.debug(f"Verification failed for {source.name}, but ignoring per config.")
+                    # Move temp to final and return success
+                    os.replace(temp_destination, final_destination)
+                    return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy, retried=retried)
+                else:
+                    temp_destination.unlink(missing_ok=True)
+                    return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed")
+
+            # Success: Move temp file to final destination
+            os.replace(temp_destination, final_destination)
+            return FileResult(status, source, final_destination, bytes_transferred=bytes_to_copy, retried=retried)
+
+        except Exception as e:
+            last_error_msg = str(e)
+            temp_destination.unlink(missing_ok=True)
+            
+            if is_retryable_error(e):
+                logger.debug(f"Transient error copying {source.name}: {last_error_msg}")
+                continue # Retry loop
+            else:
+                # Terminal error
+                logger.error(f"Failed to copy {source} to {final_destination}: {last_error_msg}")
+                return FileResult(SyncStatus.FAILED, source, final_destination, error_message=last_error_msg, retried=retried)
+
+    # If we get here, retries were exhausted
+    return FileResult(SyncStatus.FAILED, source, final_destination, error_message=f"Retries exhausted. Last error: {last_error_msg}", retried=retried)
 
 def get_unique_path(path: Path) -> Path:
     """
