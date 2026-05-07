@@ -16,6 +16,8 @@ Optimized for photographers and media creators:
 - **Case-Insensitive Filtering**: Broad support for extensions (e.g., `.JPG` and `.jpg` are handled identically).
 
 ### Reliability & Safety
+- **Atomic Writes**: Every copy operation is performed to a temporary `.ct-tmp` file and only renamed to the final path after a successful integrity check. This prevents half-finished or corrupted files from cluttering your destination.
+- **Robust Retries**: Automatically handles transient hardware glitches or driver "hiccups" with configurable retries and exponential backoff.
 - **Metadata Preservation**: Keeps your original file timestamps and permissions intact.
 - **Data Verification**: Optional post-copy checksumming (MD5, SHA1, or Size) to ensure data integrity.
 - **Safe Conflicts**: Configurable policies to skip, overwrite, or rename files if they already exist at the destination.
@@ -74,6 +76,9 @@ copy-that --install-completion
 - `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check. (Default: disabled)
 - `--workers`: Maximum number of concurrent workers (threads). (Default: auto-detected based on CPUs)
 - `--buffer-size`: Buffer size in bytes for copying and hashing. (Default: `1048576` / 1MB)
+- `--retries`: Maximum number of retry attempts for transient errors. (Default: `3`)
+- `--retry-delay`: Base delay for retries in seconds. (Default: `1.0`)
+- `--backoff` / `--no-backoff`: Enable/disable exponential backoff for retries. (Default: enabled)
 - `--dry-run`: Show what would be copied without actually performing any operations.
 - `--verbose`, `-v`: Enable detailed logging (DEBUG level).
 

@@ -58,10 +58,22 @@ conflict_policy: "skip"
 verification_method: "none"
 
 # Behavior if verification fails:
-#   - 'retry': Attempt to copy the file one more time.
+#   - 'retry': Attempt to copy the file again (respects max_retries).
 #   - 'ignore': Log the error but keep the destination file.
 #   - 'delete': Remove the destination file if verification fails.
 verification_failure_behavior: "retry"
+
+# --- Robust Retries ---
+# Maximum number of retry attempts for transient I/O errors (e.g., hardware hiccups)
+# or verification failures. 0 means no retries.
+max_retries: 3
+
+# Base delay in seconds between retry attempts.
+retry_base_delay: 1.0
+
+# If true, retries will wait progressively longer (1s, 2s, 4s, etc.)
+# between attempts.
+retry_exponential_backoff: true
 
 # If true, performs a pre-scan to estimate required space vs available disk space.
 pre_sync_space_check: false
