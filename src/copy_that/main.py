@@ -7,7 +7,7 @@ import os
 import signal
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional, List, Any
+from typing import Iterable, Optional, List, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
 from dataclasses import dataclass
@@ -15,16 +15,16 @@ from dataclasses import dataclass
 import typer
 from typing_extensions import Annotated
 from rich.console import Console
-from rich.logging import RichHandler
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich.align import Align
 from rich.highlighter import ReprHighlighter
 
 from copy_that.config import merge_config, Config, get_default_log_file
 from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
-from copy_that.processor import copy_file, SyncStatus, FileResult
+from copy_that.processor import copy_file, SyncStatus, FileResult, verify_copy, get_unique_path
 
 app = typer.Typer(help="Copy and organize files from source to destination.")
 logger = logging.getLogger("copy_that")
@@ -40,6 +40,7 @@ _last_ui_update = 0
 class SyncJob:
     source: Path
     destination: Path
+    size: int
 
 class SyncStats:
     def __init__(self, total_expected: int = 0):
@@ -157,10 +158,10 @@ def format_bytes(size: int) -> str:
     return f"{size:.2f} PB"
 
 
-def generate_sync_jobs(files_to_sync: Iterable[Path], config: Config) -> List[SyncJob]:
+def generate_sync_jobs(files_to_sync: Iterable[Tuple[Path, int]], config: Config) -> List[SyncJob]:
     """Pre-calculate all destination paths for a list of source files."""
     jobs = []
-    for source_file in files_to_sync:
+    for source_file, size in files_to_sync:
         dest_file = generate_destination_path(
             source_file, 
             config.source_directory, 
@@ -170,7 +171,7 @@ def generate_sync_jobs(files_to_sync: Iterable[Path], config: Config) -> List[Sy
             config.date_source, 
             config.filename_date_format
         )
-        jobs.append(SyncJob(source_file, dest_file))
+        jobs.append(SyncJob(source_file, dest_file, size))
     return jobs
 
 
@@ -251,7 +252,7 @@ def print_summary(
         table.add_row("Average Speed:", f"{format_bytes(int(speed))}/s")
 
     console.print("\n")
-    console.print(Panel(table, expand=False, border_style="blue"))
+    console.print(Align.center(Panel(table, expand=False, border_style="blue")))
 
     failed = [r for r in results if r.status == SyncStatus.FAILED]
     if failed:
@@ -300,22 +301,14 @@ class LiveSummaryRenderable:
         return table
 
 
-def perform_space_check(source_files: Iterable[Path], config: Config) -> None:
+def perform_space_check(sync_jobs: List[SyncJob], config: Config) -> None:
     """Perform a 'Best Effort' disk space check before copying."""
     total_size_needed = 0
-    for source_file in source_files:
-        dest_file = generate_destination_path(
-            source_file,
-            config.source_directory,
-            config.destination_base,
-            config.folder_format,
-            config.organization_mode,
-            config.date_source,
-            config.filename_date_format,
-        )
-        if config.conflict_policy == "skip" and dest_file.exists():
+    for job in sync_jobs:
+        if config.conflict_policy == "skip" and job.destination.exists():
             continue
-        total_size_needed += source_file.stat().st_size
+        total_size_needed += job.size
+
     check_path = config.destination_base
     while not check_path.exists() and check_path.parent != check_path:
         check_path = check_path.parent
@@ -526,16 +519,15 @@ def sync(
         logger.error(f"Source directory does not exist: {config.source_directory}")
         sys.exit(1)
 
-    if config.pre_sync_space_check:
-        logger.info("Performing pre-sync disk space check...")
-        perform_space_check(
-            discover_files(config.source_directory, config.include_extensions), config
-        )
-
     files_to_sync = list(
         discover_files(config.source_directory, config.include_extensions)
     )
     sync_jobs = generate_sync_jobs(files_to_sync, config)
+
+    if config.pre_sync_space_check:
+        logger.info("Performing pre-sync disk space check...")
+        perform_space_check(sync_jobs, config)
+
     results: List[FileResult] = []
     stats = SyncStats(total_expected=len(sync_jobs))
     start_time = time.perf_counter()
@@ -551,8 +543,6 @@ def sync(
 
     with _live_ui:
         if dry_run:
-            from copy_that.processor import verify_copy, get_unique_path
-
             for job in sync_jobs:
                 source_file = job.source
                 dest_file = job.destination
@@ -589,12 +579,13 @@ def sync(
                         "is_dry_run": True,
                     },
                 )
+                
                 result = FileResult(
                     status,
                     source_file,
                     dest_file,
                     bytes_transferred=(
-                        source_file.stat().st_size
+                        job.size
                         if status != SyncStatus.SKIPPED
                         else 0
                     ),

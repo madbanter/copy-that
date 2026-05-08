@@ -46,7 +46,7 @@ class Config(BaseModel):
     log_file: Optional[Path] = None
     max_log_size: int = 10 * 1024 * 1024  # 10 MB
     log_backup_count: int = 5
-    pre_sync_space_check: bool = False
+    pre_sync_space_check: bool = True
     max_workers: Optional[int] = None
     max_retries: int = Field(default=3, ge=0)
     retry_base_delay: float = Field(default=1.0, ge=0)
