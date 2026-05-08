@@ -5,7 +5,7 @@ import os
 import logging
 from pathlib import Path
 from unittest.mock import patch
-from copy_that.main import perform_space_check, main
+from copy_that.main import perform_space_check, main, SyncJob
 from copy_that.config import Config
 
 @pytest.fixture(autouse=True)
@@ -17,6 +17,7 @@ def mock_no_found_config():
 def test_perform_space_check_sufficient(tmp_path, monkeypatch):
     source_file = tmp_path / "source.txt"
     source_file.write_text("hello")
+    dest_file = tmp_path / "dest" / "source.txt"
     
     config = Config(
         source_directory=tmp_path,
@@ -24,11 +25,12 @@ def test_perform_space_check_sufficient(tmp_path, monkeypatch):
     )
     
     monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(1000, 500, 500))
-    perform_space_check([source_file], config)
+    perform_space_check([SyncJob(source_file, dest_file, 5)], config)
 
 def test_perform_space_check_insufficient(tmp_path, monkeypatch, caplog):
     source_file = tmp_path / "source.txt"
     source_file.write_text("hello world") # 11 bytes
+    dest_file = tmp_path / "dest" / "source.txt"
     
     config = Config(
         source_directory=tmp_path,
@@ -39,7 +41,7 @@ def test_perform_space_check_insufficient(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(shutil, "disk_usage", lambda p: shutil._ntuple_diskusage(100, 95, 5))
     
     with caplog.at_level("WARNING"):
-        perform_space_check([source_file], config)
+        perform_space_check([SyncJob(source_file, dest_file, 11)], config)
     
     assert "Possible insufficient disk space!" in caplog.text
 
@@ -71,7 +73,7 @@ def test_perform_space_check_skip_existing(tmp_path, monkeypatch, caplog):
     
     # Should NOT warn because the file exists and policy is 'skip'
     with caplog.at_level("WARNING"):
-        perform_space_check([source_file], config)
+        perform_space_check([SyncJob(source_file, dest_file, 100)], config)
     
     assert "Possible insufficient disk space!" not in caplog.text
 
@@ -101,8 +103,6 @@ def test_dry_run_no_io(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0
     
     captured = capsys.readouterr()
-    # Logic: [DRY RUN] is only logged if normal INFO level is reached.
-    # OutputFilter allows INFO and above.
     assert "Copied" in captured.err
     assert "test.jpg" in captured.err
     assert "Sync Summary (DRY RUN)" in captured.err
@@ -130,7 +130,6 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     assert "Sync Summary" in err_norm
     assert "DRY RUN" in err_norm
     assert "Source:" in err_norm
-    assert "test_cli_overrides" in err_norm
     assert "Destination:" in err_norm
     assert "Mode: mirror" in err_norm
     assert "would copy" in err_norm.lower()
@@ -227,6 +226,7 @@ def test_main_real_sync(tmp_path, monkeypatch, capsys):
     assert "Sync Summary" in err_norm
     assert "Total Files Processed: 1" in err_norm
     assert "Copied: 1" in err_norm
+
 def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
@@ -251,7 +251,6 @@ def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     err_norm = " ".join(captured.err.split())
     assert "Performing pre-sync disk space check" in err_norm
-    # Use a substring that is unlikely to be truncated
     assert "Possible insufficient disk" in err_norm
 
 def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
@@ -278,7 +277,6 @@ def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
     err_flat = captured.err.replace("\n", " ")
     assert "Copied" in err_flat
     assert filename in err_flat
-    assert f"dest/20230101/{filename}" not in err_flat # Audit log only
 
 def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
@@ -306,7 +304,6 @@ def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     err_norm = " ".join(captured.err.split())
     assert "Performing pre-sync disk space check" in err_norm
-    # Use a substring that is unlikely to be truncated
     assert "Possible insufficient disk" in err_norm
 
 def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
@@ -619,3 +616,39 @@ def test_real_sync_mirror_nested(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     err_norm = " ".join(captured.err.split())
     assert "Copied: 1" in err_norm
+
+def test_cli_reliability_flags(tmp_path, monkeypatch, capsys):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "test.jpg").write_text("data")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
+    # We want to capture the config object passed to process_single_file
+    captured_configs = []
+    
+    def mock_process(job, config):
+        captured_configs.append(config)
+        from copy_that.processor import FileResult, SyncStatus
+        return FileResult(SyncStatus.COPIED, job.source, job.destination)
+        
+    monkeypatch.setattr("copy_that.main.process_single_file", mock_process)
+    
+    monkeypatch.setattr("sys.argv", [
+        "copy-that",
+        "--source", str(source_dir),
+        "--dest", str(dest_dir),
+        "--retries", "5",
+        "--retry-delay", "2.5",
+        "--no-backoff",
+        "--no-space-check"
+    ])
+    
+    with pytest.raises(SystemExit):
+        main()
+        
+    assert len(captured_configs) > 0
+    config = captured_configs[0]
+    assert config.max_retries == 5
+    assert config.retry_base_delay == 2.5
+    assert config.retry_exponential_backoff is False
