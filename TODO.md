@@ -3,12 +3,12 @@
 ## 1. User Experience & Feedback
 
 - [ ] **Progress Bars**: Implement visual progress bars (e.g., using `rich`) for large file transfers. (Progress percentages added to live footer)
-- [x] **Summary Report**: Add a detailed summary after completion including total data transferred, elapsed time, average speed, and any errors.
-- [x] **Enhanced Dry Run**: Improve dry-run output to explicitly show skipped files and potential disk space issues.
+- [x] **Summary Report**: Add a detailed summary after completion including total data transferred, elapsed time, average speed, and any errors. (Completed: Box is now centered in terminal)
+- [x] **Enhanced Dry Run**: Improve dry-run output to explicitly show skipped files and use pre-cached sizes. (Space check enabled by default)
 
 ## 2. Performance
 
-- [x] **Optimized Discovery**: Consider using `os.scandir` instead of `pathlib.Path.rglob("*")` for faster discovery in large directory trees.
+- [x] **Optimized Discovery**: Uses `os.scandir` to yield sizes alongside paths, eliminating redundant `stat()` calls.
 - [x] **Modern Checksumming**: Utilize `hashlib.file_digest` (Python 3.11+) for more efficient checksum calculations during verification.
 - [x] **Buffered I/O**: Explore custom buffer sizes with `shutil.copyfileobj` to optimize performance across different storage types.
 

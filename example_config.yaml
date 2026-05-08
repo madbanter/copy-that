@@ -76,7 +76,7 @@ retry_base_delay: 1.0
 retry_exponential_backoff: true
 
 # If true, performs a pre-scan to estimate required space vs available disk space.
-pre_sync_space_check: false
+pre_sync_space_check: true
 
 # --- Logging & Output ---
 # Control what is printed to the console:

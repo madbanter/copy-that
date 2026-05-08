@@ -73,7 +73,7 @@ copy-that --install-completion
 - `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`). (Default: `skip`)
 - `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`). (Default: `none`)
 - `--verify-behavior`: Behavior on verification failure (`retry`, `ignore`, or `delete`). (Default: `retry`)
-- `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check. (Default: disabled)
+- `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check. (Default: enabled)
 - `--workers`: Maximum number of concurrent workers (threads). (Default: auto-detected based on CPUs)
 - `--buffer-size`: Buffer size in bytes for copying and hashing. (Default: `1048576` / 1MB)
 - `--retries`: Maximum number of retry attempts for transient errors. (Default: `3`)
