@@ -9,23 +9,40 @@ def restore_logging():
     for subsequent tests.
     """
     root_logger = logging.getLogger()
+    main_logger = logging.getLogger("copy_that")
+    
     # Store original state
-    original_handlers = root_logger.handlers[:]
-    original_level = root_logger.level
+    original_root_handlers = root_logger.handlers[:]
+    original_root_level = root_logger.level
+    
+    original_main_handlers = main_logger.handlers[:]
+    original_main_level = main_logger.level
+    original_main_propagate = main_logger.propagate
     
     yield
     
-    # Restore state
-    # 1. Close and remove any handlers added during the test
+    # Restore root state
     for handler in root_logger.handlers[:]:
-        if handler not in original_handlers:
+        if handler not in original_root_handlers:
             root_logger.removeHandler(handler)
             if hasattr(handler, "close"):
                 handler.close()
     
-    # 2. Ensure all original handlers are still there
-    for handler in original_handlers:
+    for handler in original_root_handlers:
         if handler not in root_logger.handlers:
             root_logger.addHandler(handler)
+    root_logger.setLevel(original_root_level)
+
+    # Restore copy_that state
+    for handler in main_logger.handlers[:]:
+        if handler not in original_main_handlers:
+            main_logger.removeHandler(handler)
+            if hasattr(handler, "close"):
+                handler.close()
+    
+    for handler in original_main_handlers:
+        if handler not in main_logger.handlers:
+            main_logger.addHandler(handler)
             
-    root_logger.setLevel(original_level)
+    main_logger.setLevel(original_main_level)
+    main_logger.propagate = original_main_propagate

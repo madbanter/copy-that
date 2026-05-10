@@ -3,7 +3,7 @@ import os
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from copy_that.organizer import generate_destination_path, get_file_date
+from copy_that.organizer import generate_destination_path, get_file_date, get_exif_metadata
 
 def test_path_structure_date(tmp_path):
     source_root = tmp_path / "src"
@@ -229,3 +229,39 @@ def test_generate_destination_path_filename(tmp_path):
     )
     
     assert result == dest_base / "2015/12/26" / "2015-12-26 15.13.52-1.jpg"
+
+def test_get_exif_metadata_corrupt(tmp_path):
+    """Test that corrupt EXIF data doesn't crash the organizer and returns defaults."""
+    corrupt_jpg = tmp_path / "corrupt.jpg"
+    corrupt_jpg.write_bytes(b"not a real jpeg")
+    
+    metadata = get_exif_metadata(corrupt_jpg)
+    assert metadata["make"] == "Unknown"
+    assert metadata["model"] == "Unknown"
+    assert metadata["date_taken"] == ""
+
+def test_get_exif_metadata_video_fallback(tmp_path):
+    """Test that video files return default metadata (recognition check)."""
+    video = tmp_path / "test.mp4"
+    video.write_text("video content")
+    
+    metadata = get_exif_metadata(video)
+    assert metadata["make"] == "Unknown"
+    assert metadata["model"] == "Unknown"
+    assert metadata["date_taken"] == ""
+
+def test_generate_destination_path_template_missing_token(tmp_path):
+    """Test fallback when template has a missing token."""
+    source_file = tmp_path / "test.jpg"
+    source_file.write_text("data")
+    
+    # Template with {invalid} token should fallback to folder_format
+    dest = generate_destination_path(
+        source_file, tmp_path, tmp_path / "dest",
+        folder_format="%Y",
+        path_template="{year}/{invalid}.jpg"
+    )
+    
+    # Check that it ends with the current year folder and filename
+    year = datetime.datetime.now().strftime("%Y")
+    assert str(dest).endswith(f"{year}/test.jpg")
