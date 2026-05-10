@@ -97,7 +97,6 @@ class AtomicGridHandler(logging.Handler):
         is_dry_run = getattr(record, "is_dry_run", False)
 
         # Available width for the message column
-        # Level column: 10, Time column: 10, Padding: 2*1, Buffer: 2
         overhead = 10 + 10 + 2 + 2
         max_msg_width = self.console.width - overhead
         if max_msg_width < 10:
@@ -107,7 +106,6 @@ class AtomicGridHandler(logging.Handler):
             dry_tag = "[DRY RUN] " if is_dry_run else ""
             prefix = f"{dry_tag}{status}: "
 
-            # Truncate filename to fit remaining space
             max_filename_len = max_msg_width - len(prefix)
             if max_filename_len < 5:
                 max_filename_len = 5
@@ -116,18 +114,12 @@ class AtomicGridHandler(logging.Handler):
             msg_str = f"{prefix}{truncated_filename}"
         else:
             msg_str = record.getMessage()
-            # ONLY truncate if it's a file action status or if it's exceptionally long
             if len(msg_str) > max_msg_width and max_msg_width > 20:
                 msg_str = truncate_middle(msg_str, max_msg_width)
 
-        # Create a 3-column grid for perfect alignment.
-        # expand=True + ratio=1 on the message column ensures it takes all available space
-        # and stays left-aligned, pinning the timestamp to the far right.
         grid = Table.grid(padding=(0, 1), expand=True)
         grid.add_column(width=12, justify="left", no_wrap=True)  # Level
-        grid.add_column(
-            justify="left", ratio=1, no_wrap=True, overflow="ellipsis"
-        )  # Message
+        grid.add_column(justify="left", ratio=1, no_wrap=True, overflow="ellipsis")  # Message
         grid.add_column(width=10, justify="right", no_wrap=True)  # Timestamp
 
         level_text = Text(f"{record.levelname}", style=level_style)
@@ -136,10 +128,8 @@ class AtomicGridHandler(logging.Handler):
         time_text = Text(time_str, style="dim")
 
         grid.add_row(level_text, message_text, time_text)
-
         self.console.print(grid)
 
-        # Throttled Synchronous Refresh
         global _last_ui_update
         now = time.perf_counter()
         if _live_ui and (now - _last_ui_update) > 0.1:
@@ -147,7 +137,7 @@ class AtomicGridHandler(logging.Handler):
             _last_ui_update = now
 
 
-def format_bytes(size: int) -> str:
+def format_bytes(size: float) -> str:
     """Format bytes into human-readable string."""
     if size == 0:
         return "0.00 B"
@@ -160,19 +150,23 @@ def format_bytes(size: int) -> str:
 
 def generate_sync_jobs(files_to_sync: Iterable[Tuple[Path, int]], config: Config) -> List[SyncJob]:
     """Pre-calculate all destination paths for a list of source files."""
-    jobs = []
-    for source_file, size in files_to_sync:
-        dest_file = generate_destination_path(
-            source_file, 
-            config.source_directory, 
-            config.destination_base, 
-            config.folder_format, 
-            config.organization_mode, 
-            config.date_source, 
-            config.filename_date_format
+    return [
+        SyncJob(
+            source_file,
+            generate_destination_path(
+                source_file,
+                config.source_directory,
+                config.destination_base,
+                config.folder_format,
+                config.organization_mode,
+                config.date_source,
+                config.filename_date_format,
+                config.path_template,
+            ),
+            size,
         )
-        jobs.append(SyncJob(source_file, dest_file, size))
-    return jobs
+        for source_file, size in files_to_sync
+    ]
 
 
 def truncate_middle(text: str, max_length: int) -> str:
@@ -191,17 +185,13 @@ def truncate_middle(text: str, max_length: int) -> str:
 
 def print_warnings_and_errors(results: List[FileResult]):
     """Print full details of any warnings (skipped, renamed) or errors (failed)."""
-    warnings = [
-        r for r in results if r.status in (SyncStatus.SKIPPED, SyncStatus.RENAMED)
-    ]
+    warnings = [r for r in results if r.status in (SyncStatus.SKIPPED, SyncStatus.RENAMED)]
     errors = [r for r in results if r.status == SyncStatus.FAILED]
 
     if warnings:
         console.print("\n[bold yellow]Warnings:[/bold yellow]")
         for r in warnings:
-            console.print(
-                f"[yellow]{r.status.value.upper()}: {r.source_path} -> {r.destination_path}[/yellow]"
-            )
+            console.print(f"[yellow]{r.status.value.upper()}: {r.source_path} -> {r.destination_path}[/yellow]")
 
     if errors:
         console.print("\n[bold red]Errors:[/bold red]")
@@ -212,36 +202,16 @@ def print_warnings_and_errors(results: List[FileResult]):
             console.print(msg)
 
 
-def print_summary(
-    stats: SyncStats,
-    results: List[FileResult],
-    elapsed_time: float,
-    dry_run: bool = False,
-):
+def print_summary(stats: SyncStats, results: List[FileResult], elapsed_time: float, dry_run: bool = False):
     """Print a detailed summary of the sync operation using Rich."""
     speed = stats.total_bytes / elapsed_time if elapsed_time > 0 else 0
-
-    title = "Sync Summary"
-    if dry_run:
-        title += " (DRY RUN)"
+    title = "Sync Summary" + (" (DRY RUN)" if dry_run else "")
 
     table = Table(title=title, show_header=False, box=None, padding=(0, 2))
     table.add_row("Total Files Processed:", str(stats.processed))
-    table.add_row(
-        f"{'Would copy' if dry_run else 'Copied'}:",
-        str(stats.transferred_count),
-        style="green",
-    )
-    table.add_row(
-        f"{'Would skip' if dry_run else 'Skipped'}:",
-        str(stats.skipped_count),
-        style="yellow",
-    )
-    table.add_row(
-        f"{'Would fail' if dry_run else 'Failed'}:",
-        str(stats.failed_count),
-        style="red",
-    )
+    table.add_row(f"{'Would copy' if dry_run else 'Copied'}:", str(stats.transferred_count), style="green")
+    table.add_row(f"{'Would skip' if dry_run else 'Skipped'}:", str(stats.skipped_count), style="yellow")
+    table.add_row(f"{'Would fail' if dry_run else 'Failed'}:", str(stats.failed_count), style="red")
     table.add_row("Items Retried:", str(stats.retried_count), style="cyan")
 
     data_label = "Data to transfer" if dry_run else "Total Data"
@@ -264,7 +234,6 @@ def print_summary(
 
 class LiveSummaryRenderable:
     """Renderable for the live-updated summary footer."""
-
     def __init__(self, stats: SyncStats, start_time: float, dry_run: bool):
         self.stats = stats
         self.start_time = start_time
@@ -277,22 +246,12 @@ class LiveSummaryRenderable:
         table.add_column("Progress", style="magenta", no_wrap=True, overflow="crop")
         table.add_column("Processed", style="cyan", no_wrap=True, overflow="crop")
         if not self.dry_run:
-            table.add_column(
-                "Transferred", style="green", no_wrap=True, overflow="crop"
-            )
+            table.add_column("Transferred", style="green", no_wrap=True, overflow="crop")
         table.add_column("Errors", style="red", no_wrap=True, overflow="crop")
         table.add_column("Elapsed", style="blue", no_wrap=True, overflow="crop")
 
-        percentage = (
-            (self.stats.processed / self.stats.total_expected * 100)
-            if self.stats.total_expected > 0
-            else 100
-        )
-
-        row = [
-            f"{percentage:>6.1f}%",
-            f"{self.stats.processed}/{self.stats.total_expected}{' (DRY RUN)' if self.dry_run else ''}",
-        ]
+        percentage = (self.stats.processed / self.stats.total_expected * 100) if self.stats.total_expected > 0 else 100
+        row = [f"{percentage:>6.1f}%", f"{self.stats.processed}/{self.stats.total_expected}{' (DRY RUN)' if self.dry_run else ''}"]
         if not self.dry_run:
             row.append(f"{self.stats.transferred_count}")
         row.append(f"{self.stats.failed_count}")
@@ -303,348 +262,155 @@ class LiveSummaryRenderable:
 
 def perform_space_check(sync_jobs: List[SyncJob], config: Config) -> None:
     """Perform a 'Best Effort' disk space check before copying."""
-    total_size_needed = 0
-    for job in sync_jobs:
-        if config.conflict_policy == "skip" and job.destination.exists():
-            continue
-        total_size_needed += job.size
-
+    total_size_needed = sum(job.size for job in sync_jobs if not (config.conflict_policy == "skip" and job.destination.exists()))
     check_path = config.destination_base
     while not check_path.exists() and check_path.parent != check_path:
         check_path = check_path.parent
     free_space = shutil.disk_usage(check_path).free
     if total_size_needed > free_space:
         mb = 1024 * 1024
-        msg = f"Possible insufficient disk space! Required: {total_size_needed / mb:.2f} MB, Available: {free_space / mb:.2f} MB"
-        logger.warning(msg)
+        logger.warning(f"Possible insufficient disk space! Required: {total_size_needed / mb:.2f} MB, Available: {free_space / mb:.2f} MB")
 
 
 def process_single_file(job: SyncJob, config: Config) -> FileResult:
     return copy_file(
-        job.source,
-        job.destination,
-        config.conflict_policy,
-        config.verification_method,
-        config.verification_failure_behavior,
-        buffer_size=config.buffer_size,
-        max_retries=config.max_retries,
-        retry_base_delay=config.retry_base_delay,
+        job.source, job.destination, config.conflict_policy, config.verification_method,
+        config.verification_failure_behavior, buffer_size=config.buffer_size,
+        max_retries=config.max_retries, retry_base_delay=config.retry_base_delay,
         retry_exponential_backoff=config.retry_exponential_backoff
     )
 
 
-@app.command()
-def sync(
-    config_path: Annotated[
-        Optional[Path], typer.Option("--config", "-c", help="Path to config file")
-    ] = None,
-    source: Annotated[
-        Optional[Path], typer.Option("--source", "-s", help="Source directory")
-    ] = None,
-    dest: Annotated[
-        Optional[Path], typer.Option("--dest", "-d", help="Destination base directory")
-    ] = None,
-    mode: Annotated[
-        Optional[str], typer.Option("--mode", help="Organization mode (date, mirror)")
-    ] = None,
-    format: Annotated[
-        Optional[str], typer.Option("--format", help="Folder format for date mode")
-    ] = None,
-    date_source: Annotated[
-        Optional[str],
-        typer.Option(
-            "--date-source", help="Date source (creation, modification, filename)"
-        ),
-    ] = None,
-    filename_date_format: Annotated[
-        Optional[str],
-        typer.Option(
-            "--filename-date-format",
-            help="Date format in filename (for_date-source=filename)",
-        ),
-    ] = None,
-    extensions: Annotated[
-        Optional[List[str]],
-        typer.Option("--ext", help="Include extensions (can be repeated)"),
-    ] = None,
-    conflict: Annotated[
-        Optional[str],
-        typer.Option("--conflict", help="Conflict policy (skip, overwrite, rename)"),
-    ] = None,
-    verify: Annotated[
-        Optional[str],
-        typer.Option("--verify", help="Verification method (none, size, md5, sha1)"),
-    ] = None,
-    verify_behavior: Annotated[
-        Optional[str],
-        typer.Option(
-            "--verify-behavior",
-            help="Verification failure behavior (retry, ignore, delete)",
-        ),
-    ] = None,
-    space_check: Annotated[
-        Optional[bool],
-        typer.Option(
-            "--space-check/--no-space-check", help="Enable/disable pre-sync space check"
-        ),
-    ] = None,
-    workers: Annotated[
-        Optional[int],
-        typer.Option("--workers", help="Max workers for concurrent copying"),
-    ] = None,
-    buffer_size: Annotated[
-        Optional[int],
-        typer.Option(
-            "--buffer-size", help="Buffer size in bytes for copying and hashing"
-        ),
-    ] = None,
-    retries: Annotated[
-        Optional[int],
-        typer.Option("--retries", help="Max retries for transient errors"),
-    ] = None,
-    retry_delay: Annotated[
-        Optional[float],
-        typer.Option("--retry-delay", help="Base delay for retries in seconds"),
-    ] = None,
-    backoff: Annotated[
-        Optional[bool],
-        typer.Option("--backoff/--no-backoff", help="Enable/disable exponential backoff"),
-    ] = None,
-    output_verbosity: Annotated[
-        Optional[str],
-        typer.Option("--verbosity", help="Output verbosity (minimal, normal, verbose)"),
-    ] = None,
-    log: Annotated[
-        bool,
-        typer.Option("--log", help="Enable audit logging to standard platform path"),
-    ] = False,
-    log_file: Annotated[
-        Optional[Path],
-        typer.Option("--log-file", help="Path to audit log file (overrides --log)"),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run", help="Show what would be copied without actually copying"
-        ),
-    ] = False,
-    verbose: Annotated[
-        bool, typer.Option("--verbose", "-v", help="Shortcut for --verbosity verbose")
-    ] = False,
-):
-    """Sync and organize files from source to destination."""
-    effective_log_file = log_file
-    if log and effective_log_file is None:
-        effective_log_file = get_default_log_file()
-    cli_overrides = {
-        "source_directory": source,
-        "destination_base": dest,
-        "organization_mode": mode,
-        "folder_format": format,
-        "date_source": date_source,
-        "filename_date_format": filename_date_format,
-        "include_extensions": extensions,
-        "conflict_policy": conflict,
-        "verification_method": verify,
-        "verification_failure_behavior": verify_behavior,
-        "pre_sync_space_check": space_check,
-        "max_workers": workers,
-        "buffer_size": buffer_size,
-        "max_retries": retries,
-        "retry_base_delay": retry_delay,
-        "retry_exponential_backoff": backoff,
-        "output_verbosity": "verbose" if verbose else output_verbosity,
-        "log_file": effective_log_file,
-    }
-
-    try:
-        config = merge_config(config_path, **cli_overrides)
-    except Exception as e:
-        logging.basicConfig(level=logging.ERROR)
-        logging.error(f"Configuration error: {e}")
-        sys.exit(1)
-
-    # Aggressively clear ALL handlers from ALL loggers in the entire system
-    logging.root.handlers = []
-    for name in list(logging.root.manager.loggerDict.keys()):
-        lgr = logging.getLogger(name)
-        lgr.handlers = []
-        lgr.propagate = True
-
+def setup_logging(config: Config, dry_run: bool) -> None:
+    """Configure logging for copy_that and root."""
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    # Remove existing handlers from root to prevent double-printing if we propagate
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        
+    main_logger = logging.getLogger("copy_that")
+    main_logger.handlers = []
+    main_logger.propagate = True  # Enable propagation for caplog and audit file
 
     rich_handler = AtomicGridHandler(console=console)
-    if config.output_verbosity == "minimal":
-        rich_handler.setLevel(logging.ERROR)
-    elif config.output_verbosity == "verbose":
-        rich_handler.setLevel(logging.DEBUG)
-    else:
-        rich_handler.setLevel(logging.INFO)
-
-    # Attach only to our specific logger
-    main_logger = logging.getLogger("copy_that")
+    level = logging.DEBUG if config.output_verbosity == "verbose" else (logging.ERROR if config.output_verbosity == "minimal" else logging.INFO)
+    rich_handler.setLevel(level)
+    main_logger.setLevel(level)
     main_logger.addHandler(rich_handler)
-    main_logger.propagate = True
 
     if config.log_file and (not dry_run or config.output_verbosity == "verbose"):
         try:
-            log_dir = config.log_file.parent
-            log_dir.mkdir(parents=True, exist_ok=True)
-            if not os.access(log_dir, os.W_OK):
-                raise PermissionError(f"Directory not writable: {log_dir}")
-            file_handler = RotatingFileHandler(
-                config.log_file,
-                maxBytes=config.max_log_size,
-                backupCount=config.log_backup_count,
-            )
+            config.log_file.parent.mkdir(parents=True, exist_ok=True)
+            if not os.access(config.log_file.parent, os.W_OK):
+                raise PermissionError(f"Directory not writable: {config.log_file.parent}")
+            file_handler = RotatingFileHandler(config.log_file, maxBytes=config.max_log_size, backupCount=config.log_backup_count)
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-            )
+            file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
             root_logger.addHandler(file_handler)
-            logger.debug(f"Audit log initialized at {config.log_file}")
+            if root_logger.level > logging.DEBUG:
+                root_logger.setLevel(logging.DEBUG)
         except Exception as e:
-            console.print(
-                f"[yellow]WARNING: Could not initialize log file: {e}[/yellow]"
-            )
+            console.print(f"[yellow]WARNING: Could not initialize log file: {e}[/yellow]")
 
-    logger.info(f"Source: {config.source_directory}")
-    logger.info(f"Destination: {config.destination_base}")
-    logger.info(f"Mode: {config.organization_mode}")
 
-    if not config.source_directory.exists():
-        logger.error(f"Source directory does not exist: {config.source_directory}")
-        sys.exit(1)
+def run_dry_run(sync_jobs: List[SyncJob], config: Config, stats: SyncStats) -> List[FileResult]:
+    results = []
+    for job in sync_jobs:
+        source_file, dest_file = job.source, job.destination
+        status, level = SyncStatus.COPIED, logging.INFO
+        if dest_file.exists():
+            level = logging.WARNING
+            if config.conflict_policy == "skip":
+                status = SyncStatus.SKIPPED if config.verification_method == "none" or verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size) else SyncStatus.OVERWRITTEN
+            elif config.conflict_policy == "overwrite": status = SyncStatus.OVERWRITTEN
+            elif config.conflict_policy == "rename": dest_file, status = get_unique_path(dest_file), SyncStatus.RENAMED
 
-    files_to_sync = list(
-        discover_files(config.source_directory, config.include_extensions)
-    )
+        status_text = status.value.capitalize()
+        logger.log(level, f"[DRY RUN] {status_text}: {source_file} -> {dest_file}", extra={"filename_only": source_file.name, "status_text": status_text, "is_dry_run": True})
+        result = FileResult(status, source_file, dest_file, bytes_transferred=(job.size if status != SyncStatus.SKIPPED else 0))
+        results.append(result); stats.update(result)
+    return results
+
+
+def run_sync_jobs(sync_jobs: List[SyncJob], config: Config, stats: SyncStats) -> List[FileResult]:
+    results = []
+    with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
+        future_to_job = {executor.submit(process_single_file, job, config): job for job in sync_jobs}
+        for future in as_completed(future_to_job):
+            result = future.result(); status_text = result.status.value.capitalize()
+            msg = f"{status_text}: {result.source_path} -> {result.destination_path}"
+            if result.status == SyncStatus.COPIED: logger.info(msg, extra={"filename_only": result.source_path.name, "status_text": status_text})
+            elif result.status == SyncStatus.FAILED: logger.error(f"Failed: {result.source_path} - {result.error_message}", extra={"filename_only": result.source_path.name, "status_text": "Failed"})
+            else: logger.warning(msg, extra={"filename_only": result.source_path.name, "status_text": status_text})
+            results.append(result); stats.update(result)
+    return results
+
+
+@app.command()
+def sync(
+    config_path: Annotated[Optional[Path], typer.Option("--config", "-c", help="Path to config file")] = None,
+    source: Annotated[Optional[Path], typer.Option("--source", "-s", help="Source directory")] = None,
+    dest: Annotated[Optional[Path], typer.Option("--dest", "-d", help="Destination base directory")] = None,
+    mode: Annotated[Optional[str], typer.Option("--mode", help="Organization mode (date, mirror)")] = None,
+    template: Annotated[Optional[str], typer.Option("--template", help="Path template (e.g., '{year}/{filename}.{ext}')")] = None,
+    format: Annotated[Optional[str], typer.Option("--format", help="Folder format for date mode")] = None,
+    date_source: Annotated[Optional[str], typer.Option("--date-source", help="Date source (creation, modification, filename, exif)")] = None,
+    filename_date_format: Annotated[Optional[str], typer.Option("--filename-date-format", help="Date format in filename")] = None,
+    extensions: Annotated[Optional[List[str]], typer.Option("--ext", help="Include extensions")] = None,
+    exclude: Annotated[Optional[List[str]], typer.Option("--exclude", help="Exclude glob patterns")] = None,
+    exclude_regex: Annotated[Optional[List[str]], typer.Option("--exclude-regex", help="Exclude regex patterns")] = None,
+    conflict: Annotated[Optional[str], typer.Option("--conflict", help="Conflict policy")] = None,
+    verify: Annotated[Optional[str], typer.Option("--verify", help="Verification method")] = None,
+    verify_behavior: Annotated[Optional[str], typer.Option("--verify-behavior", help="Verification failure behavior")] = None,
+    space_check: Annotated[Optional[bool], typer.Option("--space-check/--no-space-check", help="Enable/disable space check")] = None,
+    workers: Annotated[Optional[int], typer.Option("--workers", help="Max workers")] = None,
+    buffer_size: Annotated[Optional[int], typer.Option("--buffer-size", help="Buffer size")] = None,
+    retries: Annotated[Optional[int], typer.Option("--retries", help="Max retries")] = None,
+    retry_delay: Annotated[Optional[float], typer.Option("--retry-delay", help="Retry delay")] = None,
+    backoff: Annotated[Optional[bool], typer.Option("--backoff/--no-backoff", help="Exponential backoff")] = None,
+    output_verbosity: Annotated[Optional[str], typer.Option("--verbosity", help="Verbosity")] = None,
+    log: Annotated[bool, typer.Option("--log", help="Enable audit logging")] = False,
+    log_file: Annotated[Optional[Path], typer.Option("--log-file", help="Audit log file path")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Dry run mode")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Shortcut for verbose")] = False,
+):
+    """Sync and organize files from source to destination."""
+    effective_log_file = log_file if log_file else (get_default_log_file() if log else None)
+    cli_overrides = {
+        "source_directory": source, "destination_base": dest, "organization_mode": mode, "path_template": template,
+        "folder_format": format, "date_source": date_source, "filename_date_format": filename_date_format,
+        "include_extensions": extensions, "exclude_patterns": exclude, "exclude_regex": exclude_regex,
+        "conflict_policy": conflict, "verification_method": verify, "verification_failure_behavior": verify_behavior,
+        "pre_sync_space_check": space_check, "max_workers": workers, "buffer_size": buffer_size,
+        "max_retries": retries, "retry_base_delay": retry_delay, "retry_exponential_backoff": backoff,
+        "output_verbosity": "verbose" if verbose else output_verbosity, "log_file": effective_log_file,
+    }
+
+    try: config = merge_config(config_path, **cli_overrides)
+    except Exception as e: logging.basicConfig(level=logging.ERROR); logging.error(f"Configuration error: {e}"); sys.exit(1)
+
+    setup_logging(config, dry_run)
+    logger.info(f"Source: {config.source_directory}"); logger.info(f"Destination: {config.destination_base}"); logger.info(f"Mode: {config.organization_mode}")
+
+    if not config.source_directory.exists(): logger.error(f"Source directory does not exist: {config.source_directory}"); sys.exit(1)
+
+    files_to_sync = list(discover_files(config.source_directory, config.include_extensions, config.exclude_patterns, config.exclude_regex))
     sync_jobs = generate_sync_jobs(files_to_sync, config)
 
-    if config.pre_sync_space_check:
-        logger.info("Performing pre-sync disk space check...")
-        perform_space_check(sync_jobs, config)
+    if config.pre_sync_space_check: logger.info("Performing pre-sync disk space check..."); perform_space_check(sync_jobs, config)
 
-    results: List[FileResult] = []
-    stats = SyncStats(total_expected=len(sync_jobs))
-    start_time = time.perf_counter()
-
+    stats = SyncStats(total_expected=len(sync_jobs)); start_time = time.perf_counter()
     from rich.live import Live
-
     global _live_ui
-    _live_ui = Live(
-        LiveSummaryRenderable(stats, start_time, dry_run),
-        console=console,
-        auto_refresh=False,
-    )
-
-    with _live_ui:
-        if dry_run:
-            for job in sync_jobs:
-                source_file = job.source
-                dest_file = job.destination
-                status = SyncStatus.COPIED
-                level = logging.INFO
-                if dest_file.exists():
-                    level = logging.WARNING
-                    if config.conflict_policy == "skip":
-                        if config.verification_method == "none":
-                            status = SyncStatus.SKIPPED
-                        else:
-                            if verify_copy(
-                                source_file,
-                                dest_file,
-                                config.verification_method,
-                                buffer_size=config.buffer_size,
-                            ):
-                                status = SyncStatus.SKIPPED
-                            else:
-                                status = SyncStatus.OVERWRITTEN
-                    elif config.conflict_policy == "overwrite":
-                        status = SyncStatus.OVERWRITTEN
-                    elif config.conflict_policy == "rename":
-                        dest_file = get_unique_path(dest_file)
-                        status = SyncStatus.RENAMED
-
-                status_text = status.value.capitalize()
-                logger.log(
-                    level,
-                    f"[DRY RUN] {status_text}: {source_file} -> {dest_file}",
-                    extra={
-                        "filename_only": source_file.name,
-                        "status_text": status_text,
-                        "is_dry_run": True,
-                    },
-                )
-                
-                result = FileResult(
-                    status,
-                    source_file,
-                    dest_file,
-                    bytes_transferred=(
-                        job.size
-                        if status != SyncStatus.SKIPPED
-                        else 0
-                    ),
-                )
-                results.append(result)
-                stats.update(result)
-        else:
-            with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
-                future_to_job = {
-                    executor.submit(process_single_file, job, config): job
-                    for job in sync_jobs
-                }
-                for future in as_completed(future_to_job):
-                    result = future.result()
-                    status_text = result.status.value.capitalize()
-                    msg = f"{status_text}: {result.source_path} -> {result.destination_path}"
-
-                    if result.status == SyncStatus.COPIED:
-                        logger.info(
-                            msg,
-                            extra={
-                                "filename_only": result.source_path.name,
-                                "status_text": status_text,
-                            },
-                        )
-                    elif result.status == SyncStatus.FAILED:
-                        logger.error(
-                            f"Failed: {result.source_path} - {result.error_message}",
-                            extra={
-                                "filename_only": result.source_path.name,
-                                "status_text": "Failed",
-                            },
-                        )
-                    else:
-                        logger.warning(
-                            msg,
-                            extra={
-                                "filename_only": result.source_path.name,
-                                "status_text": status_text,
-                            },
-                        )
-
-                    results.append(result)
-                    stats.update(result)
-
-    _live_ui = None
-    end_time = time.perf_counter()
-    print_warnings_and_errors(results)
-    print_summary(stats, results, end_time - start_time, dry_run=dry_run)
+    _live_ui = Live(LiveSummaryRenderable(stats, start_time, dry_run), console=console, auto_refresh=False)
+    with _live_ui: results = run_dry_run(sync_jobs, config, stats) if dry_run else run_sync_jobs(sync_jobs, config, stats)
+    _live_ui = None; end_time = time.perf_counter()
+    print_warnings_and_errors(results); print_summary(stats, results, end_time - start_time, dry_run=dry_run)
 
 
 def main():
-    def signal_handler(sig, frame):
-        sys.stdout.write("\033[r\033[?25h")
-        sys.stdout.flush()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    app()
+    def signal_handler(sig, frame): sys.stdout.write("\033[r\033[?25h"); sys.stdout.flush(); sys.exit(0)
+    signal.signal(signal.SIGINT, signal_handler); app()
 
 
 if __name__ == "__main__":

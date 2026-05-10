@@ -36,9 +36,12 @@ class Config(BaseModel):
     destination_base: Path
     folder_format: str = "%Y%m%d"
     organization_mode: Literal["date", "mirror"] = "date"
-    date_source: Literal["creation", "modification", "filename"] = "creation"
+    path_template: Optional[str] = None
+    date_source: Literal["creation", "modification", "filename", "exif"] = "creation"
     filename_date_format: str = "%Y-%m-%d %H.%M.%S"
     include_extensions: List[str] = Field(default_factory=lambda: [".jpg", ".jpeg", ".cr3", ".arw", ".dng", ".mp4", ".xmp"])
+    exclude_patterns: List[str] = Field(default_factory=list)
+    exclude_regex: List[str] = Field(default_factory=list)
     conflict_policy: Literal["skip", "overwrite", "rename"] = "skip"
     verification_method: VerificationMethod = "none"
     verification_failure_behavior: Literal["retry", "ignore", "delete"] = "retry"
@@ -79,6 +82,26 @@ class Config(BaseModel):
             return v
         except Exception as e:
             raise ValueError(f"Invalid date format string: {v}. Error: {e}")
+
+    @field_validator("path_template")
+    @classmethod
+    def validate_path_template(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        
+        # Check for balanced braces
+        if v.count("{") != v.count("}"):
+            raise ValueError("Unbalanced braces in path template")
+        
+        # Check for valid tokens
+        valid_tokens = {"year", "month", "day", "hour", "minute", "second", "ext", "filename", "make", "model"}
+        import re
+        tokens = re.findall(r"\{(.*?)\}", v)
+        for token in tokens:
+            if token not in valid_tokens:
+                raise ValueError(f"Invalid token '{token}' in path template. Valid tokens are: {', '.join(sorted(valid_tokens))}")
+        
+        return v
 
 def find_config() -> Optional[Path]:
     """
