@@ -62,25 +62,28 @@ copy-that --install-completion
 ```
 
 ### CLI Options
-- `--config`, `-c`: Path to the YAML configuration file. If not provided, it searches standard locations.
-- `--source`, `-s`: Source directory to scan for files. Supports `.` for the current directory.
+- `--config`, `-c`: Path to the YAML configuration file.
+- `--source`, `-s`: Source directory to scan for files.
 - `--dest`, `-d`: Destination base directory for organization.
 - `--mode`: Organization mode (`date` or `mirror`). (Default: `date`)
-- `--format`: Folder format string for `date` mode (e.g., `%Y/%m/%d`). (Default: `%Y%m%d`)
-- `--date-source`: Source for date metadata (`creation`, `modification`, or `filename`). (Default: `creation`)
-- `--filename-date-format`: Date format pattern if `date-source` is set to `filename`. (Default: `%Y-%m-%d %H.%M.%S`)
-- `--ext`: Include specific file extensions (can be repeated). (Default: `.jpg, .jpeg, .cr3, .arw, .dng, .mp4, .xmp`)
-- `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`). (Default: `skip`)
-- `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`). (Default: `none`)
-- `--verify-behavior`: Behavior on verification failure (`retry`, `ignore`, or `delete`). (Default: `retry`)
-- `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check. (Default: enabled)
-- `--workers`: Maximum number of concurrent workers (threads). (Default: auto-detected based on CPUs)
-- `--buffer-size`: Buffer size in bytes for copying and hashing. (Default: `1048576` / 1MB)
-- `--retries`: Maximum number of retry attempts for transient errors. (Default: `3`)
-- `--retry-delay`: Base delay for retries in seconds. (Default: `1.0`)
-- `--backoff` / `--no-backoff`: Enable/disable exponential backoff for retries. (Default: enabled)
-- `--dry-run`: Show what would be copied without actually performing any operations.
-- `--verbose`, `-v`: Enable detailed logging (DEBUG level).
+- `--template`: Path template (e.g., '{year}/{make}/{filename}.{ext}'). Overrides `mode` and `folder-format`.
+- `--format`: Folder format string for `date` mode. (Default: `%Y%m%d`)
+- `--date-source`: Source for date metadata (`creation`, `modification`, `filename`, or `exif`). (Default: `creation`)
+- `--filename-date-format`: Date format pattern if `date-source` is set to `filename`.
+- `--ext`: Include specific file extensions (can be repeated).
+- `--exclude`: Glob pattern(s) to exclude (can be repeated).
+- `--exclude-regex`: Regex pattern(s) to exclude (can be repeated).
+- `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`).
+- `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`).
+- `--verify-behavior`: Verification failure behavior (`retry`, `ignore`, or `delete`).
+- `--space-check` / `--no-space-check`: Enable/disable pre-sync disk space check.
+- `--workers`: Maximum number of concurrent workers.
+- `--buffer-size`: Buffer size in bytes for copy/hashing operations.
+- `--retries`: Max retries for transient errors.
+- `--retry-delay`: Base delay for retries (seconds).
+- `--backoff` / `--no-backoff`: Enable/disable exponential backoff.
+- `--dry-run`: Simulation mode.
+- `--verbose`, `-v`: Enable detailed logging.
 
 ## Configuration
 CopyThat looks for settings in:

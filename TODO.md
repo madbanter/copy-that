@@ -14,9 +14,9 @@
 
 ## 3. Functionality & Features
 
-- [ ] **Exif-based Organization**: Integrate an Exif library to use "Date Taken" metadata for more accurate media organization.
-- [ ] **Advanced Filtering**: Support glob patterns, regex, or exclusion lists (e.g., ignoring `.DS_Store` or `__pycache__`).
-- [ ] **Template-based Organization**: Move to a flexible template system (e.g., `{year}/{camera_model}/{extension}/{filename}`).
+- [x] **Exif-based Organization**: Integrate an Exif library to use "Date Taken" metadata for more accurate media organization. (Completed using ExifRead)
+- [x] **Advanced Filtering**: Support glob patterns, regex, or exclusion lists (e.g., ignoring `.DS_Store` or `__pycache__`). (Completed with glob and regex support)
+- [x] **Template-based Organization**: Move to a flexible template system (e.g., `{year}/{camera_model}/{extension}/{filename}`). (Completed using token-based rendering)
 - [x] **Atomic Writes**: Copy files to a temporary `.ct-tmp` extension first and rename them only after successful verification.
 
 ## 4. Reliability & Maintainability

@@ -19,10 +19,20 @@ organization_mode: "date"
 # e.g., '%Y/%m-%B/%d' -> 2023/01-January/01
 folder_format: "%Y%m%d"
 
+# Optional path template (e.g., '{year}/{make}/{filename}.{ext}').
+# If provided, this value overrides both 'organization_mode' and 'folder_format'.
+# The template is treated as the full destination path relative to 'destination_base'.
+# You must include '{filename}' and '{ext}' tokens if you want to preserve the original filename.
+# Supported tokens: year, month, day, hour, minute, second, ext, filename, make, model
+# Example: 
+# path_template: "{year}/{month}/{day}/{filename}.{ext}"
+path_template: null
+
 # Source for file dates:
 #   - 'creation': Uses file birth time (macOS) or modification time fallback.
 #   - 'modification': Uses file modification time.
 #   - 'filename': Extracts the date from the filename itself.
+#   - 'exif': Uses EXIF 'DateTimeOriginal' (for images).
 date_source: "creation"
 
 # Date format pattern if 'date_source' is set to 'filename'.
@@ -41,12 +51,15 @@ include_extensions:
   - .mp4
   - .xmp
 
+# List of glob patterns to exclude (e.g., 'IMG_*', '*.tmp').
+exclude_patterns: []
+
+# List of regex patterns to exclude (matches against full path string).
+exclude_regex: []
+
 # --- Conflict & Reliability ---
 # What to do if a file already exists at the destination:
 #   - 'skip': Leave the existing file alone.
-#            NOTE: If a 'verification_method' is enabled, it will verify the
-#            existing file first and only skip if it matches the source.
-#            Otherwise, it will re-copy (overwrite) the file.
 #   - 'overwrite': Replace the existing file.
 #   - 'rename': Copy with a numeric suffix (e.g., photo_1.jpg).
 conflict_policy: "skip"
@@ -64,43 +77,17 @@ verification_method: "none"
 verification_failure_behavior: "retry"
 
 # --- Robust Retries ---
-# Maximum number of retry attempts for transient I/O errors (e.g., hardware hiccups)
-# or verification failures. 0 means no retries.
 max_retries: 3
-
-# Base delay in seconds between retry attempts.
 retry_base_delay: 1.0
-
-# If true, retries will wait progressively longer (1s, 2s, 4s, etc.)
-# between attempts.
 retry_exponential_backoff: true
-
-# If true, performs a pre-scan to estimate required space vs available disk space.
 pre_sync_space_check: true
 
 # --- Logging & Output ---
-# Control what is printed to the console:
-#   - 'minimal': Only log fatal errors.
-#   - 'normal': Default feedback (live footer summary, single-line logs, and final warnings/errors report).
-#   - 'verbose': All activity plus debug-level diagnostic logs.
 output_verbosity: "normal"
-
-# Optional path to a log file for a full audit trail.
-# NOTE: In dry-run mode, this file is only written if verbosity is 'verbose'.
-# Use 'null' to disable file logging.
 log_file: null
-
-# Log rotation settings:
-# The maximum size of the log file in bytes before it is rotated (default: 10MB).
 max_log_size: 10485760
-# The number of archived log files to keep before deleting the oldest one.
 log_backup_count: 5
 
 # --- Performance ---
-# Number of threads for concurrent copying.
-# null = system default (number of CPUs), 1 = sequential.
 max_workers: null
-
-# Buffer size in bytes for copying and hashing (default: 1MB).
-# Values between 1KB and 128MB are supported.
 buffer_size: 1048576
