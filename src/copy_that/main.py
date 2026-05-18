@@ -510,13 +510,13 @@ def sync(
     except Exception as e:
         # Fallback logging if setup_logging hasn't run yet
         logging.basicConfig(level=logging.ERROR)
-        logger.error(f"Configuration error: {e}")
+        logger.error(f"Configuration initialization failed: {e}")
         sys.exit(1)
 
     setup_logging(config, dry_run)
     
     if not config.source_directory:
-        logger.error("Source directory is required for sync. Please provide --source or set it in config.")
+        logger.error("Sync aborted: Source directory is not defined (check config or provide --source).")
         sys.exit(1)
 
     logger.info(f"Source: {config.source_directory}")

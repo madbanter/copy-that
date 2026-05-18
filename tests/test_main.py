@@ -171,7 +171,7 @@ def test_main_config_error(tmp_path, monkeypatch, caplog):
         with pytest.raises(SystemExit) as e:
             main()
     assert e.value.code == 1
-    assert "Configuration error" in caplog.text
+    assert "Configuration initialization failed" in caplog.text
 
 def test_main_config_merge_error(tmp_path, monkeypatch, caplog):
     source_dir = tmp_path / "src"
@@ -201,7 +201,7 @@ def test_main_corrupt_yaml(tmp_path, monkeypatch, caplog):
         with pytest.raises(SystemExit) as e:
             main()
     assert e.value.code == 1
-    assert "Configuration error: Error parsing configuration file" in caplog.text
+    assert "Configuration initialization failed: Error parsing configuration file" in caplog.text
 
 def test_main_real_sync(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
