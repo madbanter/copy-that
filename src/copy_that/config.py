@@ -32,7 +32,7 @@ def get_default_log_file() -> Path:
         return home / ".copy-that" / "sync.log"
 
 class Config(BaseModel):
-    source_directory: Path
+    source_directory: Optional[Path] = None
     destination_base: Path
     folder_format: str = "%Y%m%d"
     organization_mode: Literal["date", "mirror"] = "date"
@@ -55,6 +55,13 @@ class Config(BaseModel):
     retry_base_delay: float = Field(default=1.0, ge=0)
     retry_exponential_backoff: bool = True
     buffer_size: int = Field(default=1024 * 1024, ge=1024, le=128 * 1024 * 1024)
+    
+    # Automation & Monitoring
+    watch_debounce: float = Field(default=5.0, ge=0.1)
+    auto_mount_enabled: bool = False
+    auto_mount_points: List[Path] = Field(default_factory=lambda: [Path("/Volumes") if sys.platform == "darwin" else Path("/media")])
+    auto_mount_whitelist: List[str] = Field(default_factory=list)
+    auto_mount_interactive_prompt: bool = True
 
     @field_validator("include_extensions", mode="before")
     @classmethod
@@ -69,6 +76,13 @@ class Config(BaseModel):
         if v is None:
             return v
         return v.expanduser().resolve()
+
+    @field_validator("auto_mount_points", mode="before")
+    @classmethod
+    def expand_mount_paths(cls, v: Any) -> List[Path]:
+        if not isinstance(v, list):
+            return v
+        return [Path(p).expanduser().resolve() for p in v]
 
     @field_validator("filename_date_format")
     @classmethod
@@ -182,8 +196,8 @@ def merge_config(config_path: Optional[Path] = None, **kwargs: Any) -> Config:
         if missing_fields:
             if not actual_config_path:
                 raise ValueError(
-                    f"No configuration file found and required arguments are missing: {', '.join(missing_fields)}. "
-                    "Please provide a config file or use CLI options (--source, --dest)."
+                    f"Required arguments are missing: {', '.join(missing_fields)}. "
+                    "Please provide a config file or use CLI options (e.g. --dest)."
                 ) from e
             else:
                 raise ValueError(
