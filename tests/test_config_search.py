@@ -149,11 +149,10 @@ destination_base: "../output"
     # ../output -> tmp_path/output
     assert config.destination_base == (tmp_path / "output").resolve()
 
-def test_merge_config_missing_required_fields_no_file():
+def test_merge_config_missing_required_fields_no_file(mock_no_found_config):
     """Test error message when no config file exists and required fields are missing."""
-    with patch("copy_that.config.find_config", return_value=None):
-        with pytest.raises(ValueError, match="No configuration file found and required arguments are missing: source_directory, destination_base"):
-            merge_config()
+    with pytest.raises(ValueError, match="Required arguments are missing: destination_base. Please provide a config file or use CLI options"):
+        merge_config()
 
 def test_merge_config_incomplete_file(tmp_path):
     """Test error message when a config file is found but is missing required fields."""

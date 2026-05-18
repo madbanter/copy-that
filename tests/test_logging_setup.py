@@ -14,6 +14,7 @@ def test_logging_setup_file_handler_no_dry_run(tmp_path, monkeypatch):
     # Mock sys.argv for real sync
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--log-file", str(log_file),
@@ -39,6 +40,7 @@ def test_logging_setup_file_handler_dry_run_no_log(tmp_path, monkeypatch):
     # Mock sys.argv for dry run (default verbosity)
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--log-file", str(log_file),
@@ -61,6 +63,7 @@ def test_logging_setup_file_handler_dry_run_verbose_log(tmp_path, monkeypatch):
     # Mock sys.argv for dry run with verbose
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--log-file", str(log_file),
@@ -83,6 +86,7 @@ def test_logging_setup_file_error(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--log-file", str(log_file),

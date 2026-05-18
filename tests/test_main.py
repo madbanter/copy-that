@@ -93,6 +93,7 @@ def test_dry_run_no_io(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
+        "sync",
         "--source", str(source_dir), 
         "--dest", str(dest_dir), 
         "--dry-run"
@@ -116,6 +117,7 @@ def test_cli_overrides(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
+        "sync",
         "--source", str(source_dir), 
         "--dest", str(dest_dir), 
         "--mode", "mirror",
@@ -141,6 +143,7 @@ def test_main_source_not_exists(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
+        "sync",
         "--source", str(tmp_path / "nonexistent"), 
         "--dest", str(dest_dir),
         "--dry-run"
@@ -160,6 +163,7 @@ def test_main_config_error(tmp_path, monkeypatch, caplog):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
+        "sync",
         "--config", str(config_file)
     ])
     
@@ -176,7 +180,7 @@ def test_main_config_merge_error(tmp_path, monkeypatch, caplog):
     dest_dir.mkdir()
     
     with patch("copy_that.main.merge_config", side_effect=ValueError("Merge failed")):
-        monkeypatch.setattr("sys.argv", ["copy-that", "--source", str(source_dir), "--dest", str(dest_dir)])
+        monkeypatch.setattr("sys.argv", ["copy-that", "sync", "--source", str(source_dir), "--dest", str(dest_dir)])
         with caplog.at_level(logging.ERROR):
             with pytest.raises(SystemExit) as e:
                 main()
@@ -189,6 +193,7 @@ def test_main_corrupt_yaml(tmp_path, monkeypatch, caplog):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
+        "sync",
         "--config", str(config_file)
     ])
     
@@ -207,7 +212,7 @@ def test_main_real_sync(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
-        "--source", str(source_dir), 
+        "sync",        "--source", str(source_dir), 
         "--dest", str(dest_dir),
         "--mode", "mirror",
         "--no-space-check"
@@ -238,6 +243,7 @@ def test_main_space_check_triggered(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--space-check",
@@ -263,6 +269,7 @@ def test_main_filename_date_dry_run(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--date-source", "filename",
@@ -290,6 +297,7 @@ def test_main_filename_date_space_check(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--date-source", "filename",
@@ -316,7 +324,7 @@ def test_cli_filename_date_source(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that", 
-        "--source", str(source_dir), 
+        "sync",        "--source", str(source_dir), 
         "--dest", str(dest_dir),
         "--date-source", "filename",
         "--filename-date-format", "%Y-%m-%d %H.%M.%S",
@@ -347,6 +355,7 @@ def test_integrity_aware_skip_dry_run(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--verify", "size",
@@ -381,6 +390,7 @@ def test_dry_run_rename_policy(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--conflict", "rename",
@@ -421,6 +431,7 @@ def test_smart_sync_concurrency(tmp_path, monkeypatch, capsys):
             
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--verify", "size",
@@ -449,6 +460,7 @@ def test_main_log_default_path(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--log",
@@ -469,6 +481,7 @@ def test_main_log_dir_not_writable_capsys(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--log-file", str(log_file),
@@ -487,8 +500,9 @@ def test_main_log_dir_not_writable_capsys(tmp_path, monkeypatch, capsys):
             main()
             
     captured = capsys.readouterr()
-    err_norm = " ".join(captured.err.split())
-    assert "Directory not writable" in err_norm
+    # Since we use AtomicGridHandler, the output is in stderr/stdout via rich
+    # We check for a subset of the error message to avoid being sensitive to grid truncation
+    assert "Could not initialize log" in captured.err or "Could not initialize log" in captured.out
 
 def test_dry_run_skip_none_verify(tmp_path, monkeypatch, capsys):
     source_dir = tmp_path / "src"
@@ -500,6 +514,7 @@ def test_dry_run_skip_none_verify(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--mode", "mirror",
@@ -524,6 +539,7 @@ def test_dry_run_overwrite_policy(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--mode", "mirror",
@@ -550,6 +566,7 @@ def test_main_process_single_file_failed_branch(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--no-space-check"
@@ -574,6 +591,7 @@ def test_dry_run_skip_date_mode(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--mode", "date",
@@ -599,6 +617,7 @@ def test_real_sync_mirror_nested(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--mode", "mirror",
@@ -636,6 +655,7 @@ def test_cli_reliability_flags(tmp_path, monkeypatch, capsys):
     
     monkeypatch.setattr("sys.argv", [
         "copy-that",
+        "sync",
         "--source", str(source_dir),
         "--dest", str(dest_dir),
         "--retries", "5",

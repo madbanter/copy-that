@@ -1,5 +1,34 @@
 import logging
 import pytest
+import os
+from pathlib import Path
+from unittest.mock import patch
+
+@pytest.fixture(autouse=True)
+def isolate_filesystem(tmp_path, monkeypatch):
+    """
+    Ensure tests don't touch the actual user's home or config directories.
+    """
+    # Create a unique fake home directory
+    fake_home = tmp_path / "fake_home"
+    # Use exist_ok just in case, though tmp_path should be unique per test
+    fake_home.mkdir(parents=True, exist_ok=True)
+    
+    # Mock Path.home() globally
+    with patch("pathlib.Path.home", return_value=fake_home):
+        # Also set HOME env var for any code that uses os.environ
+        monkeypatch.setenv("HOME", str(fake_home))
+        # Ensure XDG_CONFIG_HOME is also mocked to avoid using real config paths
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(fake_home / ".config"))
+        yield fake_home
+
+@pytest.fixture
+def mock_no_found_config():
+    """
+    Ensure tests don't accidentally pick up local config.yaml files.
+    """
+    with patch("copy_that.config.find_config", return_value=None):
+        yield
 
 @pytest.fixture(autouse=True)
 def restore_logging():

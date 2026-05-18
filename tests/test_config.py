@@ -25,8 +25,8 @@ def test_config_expansion(tmp_path):
 
 def test_home_expansion(tmp_path, monkeypatch):
     # Mock HOME to ensure test is environment-agnostic
-    mock_home = tmp_path / "fake_home"
-    mock_home.mkdir()
+    mock_home = tmp_path / "unique_home"
+    mock_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HOME", str(mock_home))
     
     config = Config(
