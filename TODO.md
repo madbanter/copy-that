@@ -33,9 +33,9 @@
 
 ## 6. Automation & Monitoring
 
-- [ ] **Auto-Copy on Mount**: Detect when external media (SD cards, CF cards, etc.) are mounted and automatically trigger a sync.
-- [ ] **Watch Mode**: Implement a continuous "watch" mode that monitors specified directories for new files and processes them in real-time.
-- [ ] **Background Service**: Support running the app as a background daemon or system service.
+- [x] **Auto-Copy on Mount**: Detect when external media (SD cards, CF cards, etc.) are mounted and automatically trigger a sync. (Completed)
+- [x] **Watch Mode**: Implement a continuous "watch" mode that monitors specified directories for new files and processes them in real-time. (Completed)
+- [x] **Background Service**: Support running the app as a background daemon or system service. (Completed via lifecycle PID management)
 
 ## 7. Deployment & Future Enhancements
 

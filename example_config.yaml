@@ -2,7 +2,7 @@
 # Rename this file to config.yaml to use it as your default configuration.
 
 # --- Core Paths ---
-# The directory to scan for source files.
+# The directory to scan for source files. (Optional; required for sync/watch commands)
 source_directory: "~/Pictures/Source"
 
 # The base directory where organized files will be copied.
@@ -24,8 +24,6 @@ folder_format: "%Y%m%d"
 # The template is treated as the full destination path relative to 'destination_base'.
 # You must include '{filename}' and '{ext}' tokens if you want to preserve the original filename.
 # Supported tokens: year, month, day, hour, minute, second, ext, filename, make, model
-# Example: 
-# path_template: "{year}/{month}/{day}/{filename}.{ext}"
 path_template: null
 
 # Source for file dates:
@@ -76,18 +74,28 @@ verification_method: "none"
 #   - 'delete': Remove the destination file if verification fails.
 verification_failure_behavior: "retry"
 
-# --- Robust Retries ---
-max_retries: 3
-retry_base_delay: 1.0
-retry_exponential_backoff: true
-pre_sync_space_check: true
+# --- Automation & Monitoring ---
+# Debounce period in seconds for watch mode
+watch_debounce: 5.0
+# Enable/disable auto-mount drive detection
+auto_mount_enabled: false
+# List of paths to monitor for new mounts
+auto_mount_points: ["/Volumes", "/media"]
+# Patterns to automatically sync (if left empty, all drives are prompted or synced based on interactive_prompt)
+auto_mount_whitelist: []
+# Prompt before syncing from an unknown drive in interactive mode
+auto_mount_interactive_prompt: true
 
 # --- Logging & Output ---
-output_verbosity: "normal"
+output_verbosity: "normal" # 'minimal', 'normal', 'verbose'
 log_file: null
-max_log_size: 10485760
+max_log_size: 10485760     # 10 MB
 log_backup_count: 5
 
 # --- Performance ---
+pre_sync_space_check: true
 max_workers: null
+max_retries: 3
+retry_base_delay: 1.0
+retry_exponential_backoff: true
 buffer_size: 1048576
