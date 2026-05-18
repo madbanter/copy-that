@@ -55,13 +55,21 @@ copy-that --source . --dest ~/Pictures/Imports --dry-run
 copy-that --mode mirror
 ```
 
-### Shell Completions
+## Shell Completions
 To install shell completions for your current shell:
 ```bash
 copy-that --install-completion
 ```
 
-### CLI Options
+## Background Services
+
+CopyThat runs background services for file watching and mount detection.
+
+- **Locking:** These services use kernel-level advisory locks to ensure single-instance operation. If a service crashes, the OS automatically releases the lock, eliminating "stale PID" issues.
+- **Stopping:** Run `copy-that stop` to terminate all active background services. You can also target specific services using `--watch` or `--auto-mount`. Services are designed to shut down gracefully upon receiving a `SIGTERM` signal.
+
+## CLI Options
+
 - `--config`, `-c`: Path to the YAML configuration file.
 - `--source`, `-s`: Source directory to scan for files.
 - `--dest`, `-d`: Destination base directory for organization.

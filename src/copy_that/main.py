@@ -26,7 +26,7 @@ from copy_that.config import merge_config, Config, get_default_log_file
 from copy_that.discovery import discover_files
 from copy_that.organizer import generate_destination_path
 from copy_that.processor import copy_file, SyncStatus, FileResult, verify_copy, get_unique_path
-from copy_that.lifecycle import GracefulShutdown, write_pid_file, remove_pid_file, is_process_running, stop_process
+from copy_that.lifecycle import GracefulShutdown, ProcessLock, stop_process
 from copy_that.monitor import Monitor
 
 app = typer.Typer(help="Copy and organize files from source to destination.")
@@ -558,12 +558,12 @@ def watch(
         logger.error("Source directory is required for watch. Please provide --source or set it in config.")
         sys.exit(1)
 
-    if is_process_running("watch"):
-        logger.error("Error: A watch process is already running.")
+    lock = ProcessLock("watch")
+    if not lock.acquire():
+        logger.error("Error: A watch process is already running (lock held).")
         sys.exit(1)
 
     shutdown = GracefulShutdown()
-    write_pid_file("watch", "copy-that watch")
 
     def trigger_sync():
         try:
@@ -576,7 +576,7 @@ def watch(
             monitor.watch_files(config.source_directory, trigger_sync, debounce=config.watch_debounce)
             monitor.run()
     finally:
-        remove_pid_file("watch")
+        lock.release()
 
 
 @app.command()
@@ -600,12 +600,12 @@ def auto_mount(
 
     setup_logging(config, False)
 
-    if is_process_running("auto-mount"):
-        logger.error("Error: An auto-mount process is already running.")
+    lock = ProcessLock("auto-mount")
+    if not lock.acquire():
+        logger.error("Error: An auto-mount process is already running (lock held).")
         sys.exit(1)
 
     shutdown = GracefulShutdown()
-    write_pid_file("auto-mount", "copy-that auto-mount")
 
     def on_mount(mount_path: Path):
         # Whitelist check
@@ -634,7 +634,7 @@ def auto_mount(
             monitor.watch_mounts(config.auto_mount_points, on_mount, config.auto_mount_whitelist)
             monitor.run()
     finally:
-        remove_pid_file("auto-mount")
+        lock.release()
 
 
 @app.command()
@@ -642,22 +642,25 @@ def stop(
     watch: Annotated[bool, typer.Option("--watch", help="Stop watch process")] = False,
     auto_mount: Annotated[bool, typer.Option("--auto-mount", help="Stop auto-mount process")] = False,
 ):
-    """Stop active background monitoring processes."""
-    if not watch and not auto_mount:
-        logger.warning("Please specify which process to stop (--watch or --auto-mount).")
-        return
-
-    if watch:
-        if stop_process("watch"):
-            logger.info("Stopped watch process.")
-        else:
-            logger.info("No active watch process found.")
-
-    if auto_mount:
-        if stop_process("auto-mount"):
-            logger.info("Stopped auto-mount process.")
-        else:
-            logger.info("No active auto-mount process found.")
+    """Stop active background monitoring processes. Stops all by default."""
+    
+    # Map flags to process names
+    all_targets = {"watch": watch, "auto-mount": auto_mount}
+    
+    # If no flags are set, we want to stop all targets
+    if not any(all_targets.values()):
+        targets_to_stop = all_targets.keys()
+    else:
+        targets_to_stop = [name for name, active in all_targets.items() if active]
+        
+    stopped_anything = False
+    for target in targets_to_stop:
+        if stop_process(target):
+            logger.info(f"Stopped {target} process.")
+            stopped_anything = True
+            
+    if not stopped_anything:
+        logger.info("No active background processes to stop.")
 
 
 def main():

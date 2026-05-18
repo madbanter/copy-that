@@ -43,3 +43,4 @@
 - [ ] **Menu Bar / System Tray Icon**: Add a resident icon for quick access and status monitoring.
 - [ ] **Containerization**: Provide a `Dockerfile` for easier deployment.
 - [ ] **Task Automation**: Use `Taskfile` or similar to automate common workflows like `test`, `lint`, and `dry-run`.
+- [ ] **Filesystem Limitations**: Background services (watch/auto-mount) are currently limited to local filesystems due to advisory locking limitations on NFS/SMB and cloud storage. Investigate cross-platform lock-file workarounds for these environments.
