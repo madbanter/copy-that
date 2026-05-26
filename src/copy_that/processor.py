@@ -5,7 +5,7 @@ import time
 import errno
 import os
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional, Literal, Callable
 from enum import Enum
 from dataclasses import dataclass
 
@@ -99,6 +99,22 @@ def is_retryable_error(e: Exception) -> bool:
         
     return e.errno in retryable_errnos
 
+class ProgressFileWrapper:
+    """Wraps a file object to intercept read() calls and report progress."""
+    def __init__(self, file_obj, callback: Callable[[int], None]):
+        self.file_obj = file_obj
+        self.callback = callback
+
+    def read(self, size=-1):
+        data = self.file_obj.read(size)
+        if data and self.callback:
+            self.callback(len(data))
+        return data
+
+    def __getattr__(self, name):
+        """Pass through other attributes/methods to the underlying file object."""
+        return getattr(self.file_obj, name)
+
 def copy_file(
     source: Path, 
     destination: Path, 
@@ -108,7 +124,8 @@ def copy_file(
     buffer_size: int = 1024 * 1024,
     max_retries: int = 3,
     retry_base_delay: float = 1.0,
-    retry_exponential_backoff: bool = True
+    retry_exponential_backoff: bool = True,
+    progress_callback: Optional[Callable[[int], None]] = None
 ) -> FileResult:
     """
     Copy a file from source to destination with metadata preservation and verification.
@@ -161,7 +178,8 @@ def copy_file(
             # Perform Copy to temp file
             with open(source, "rb") as fsrc:
                 with open(temp_destination, "wb") as fdst:
-                    shutil.copyfileobj(fsrc, fdst, length=buffer_size)
+                    fsrc_proxy = ProgressFileWrapper(fsrc, progress_callback) if progress_callback else fsrc
+                    shutil.copyfileobj(fsrc_proxy, fdst, length=buffer_size)
             
             # Preserve metadata on the temp file
             shutil.copystat(source, temp_destination)
@@ -197,7 +215,6 @@ def copy_file(
                 continue # Retry loop
             else:
                 # Terminal error
-                logger.error(f"Failed to copy {source} to {final_destination}: {last_error_msg}")
                 return FileResult(SyncStatus.FAILED, source, final_destination, error_message=last_error_msg, retried=retried)
 
     # If we get here, retries were exhausted

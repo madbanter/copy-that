@@ -2,7 +2,7 @@
 
 ## 1. User Experience & Feedback
 
-- [ ] **Progress Bars**: Implement visual progress bars (e.g., using `rich`) for large file transfers. (Progress percentages added to live footer)
+- [x] **Progress Bars**: Implement visual progress bars (e.g., using `rich`) for large file transfers. (Progress percentages added to live footer)
 - [x] **Summary Report**: Add a detailed summary after completion including total data transferred, elapsed time, average speed, and any errors. (Completed: Box is now centered in terminal)
 - [x] **Enhanced Dry Run**: Improve dry-run output to explicitly show skipped files and use pre-cached sizes. (Space check enabled by default)
 

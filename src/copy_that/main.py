@@ -15,12 +15,13 @@ from dataclasses import dataclass
 
 import typer
 from typing_extensions import Annotated
-from rich.console import Console
+from rich.console import Console, Group
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich.align import Align
 from rich.highlighter import ReprHighlighter
+from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TaskProgressColumn, TimeRemainingColumn
 
 from copy_that.config import merge_config, Config, get_default_log_file
 from copy_that.discovery import discover_files
@@ -36,7 +37,8 @@ highlighter = ReprHighlighter()
 
 # Global reference for synchronous UI refresh
 _live_ui = None
-_last_ui_update = 0
+_progress = None
+_overall_task_id = None
 
 
 @dataclass
@@ -137,11 +139,7 @@ class AtomicGridHandler(logging.Handler):
         grid.add_row(level_text, message_text, time_text)
         self.console.print(grid)
 
-        global _last_ui_update
-        now = time.perf_counter()
-        if _live_ui and (now - _last_ui_update) > 0.1:
-            _live_ui.refresh()
-            _last_ui_update = now
+
 
 
 def format_bytes(size: float) -> str:
@@ -237,15 +235,7 @@ def print_summary(stats: SyncStats, results: List[FileResult], elapsed_time: flo
     if not dry_run and stats.total_bytes > 0:
         table.add_row("Average Speed:", f"{format_bytes(int(speed))}/s")
 
-    console.print("\n")
     console.print(Align.center(Panel(table, expand=False, border_style="blue")))
-
-    failed = [r for r in results if r.status == SyncStatus.FAILED]
-    if failed:
-        console.print("\n[bold red]Failures:[/bold red]")
-        for r in failed:
-            console.print(f"  - [red]{r.source_path.name}[/red]: {r.error_message}")
-        console.print("-" * 40)
 
 
 class LiveSummaryRenderable:
@@ -298,12 +288,37 @@ def perform_space_check(sync_jobs: List[SyncJob], config: Config) -> None:
 
 
 def process_single_file(job: SyncJob, config: Config) -> FileResult:
-    return copy_file(
-        job.source, job.destination, config.conflict_policy, config.verification_method,
-        config.verification_failure_behavior, buffer_size=config.buffer_size,
-        max_retries=config.max_retries, retry_base_delay=config.retry_base_delay,
-        retry_exponential_backoff=config.retry_exponential_backoff
-    )
+    global _progress, _overall_task_id
+    task_id = None
+    progress_callback = None
+
+    if _progress is not None:
+        max_filename_len = console.width - 70 if console.width else 50
+        max_filename_len = max(max_filename_len, 10)
+        truncated_name = truncate_middle(job.source.name, max_filename_len)
+        padded_name = truncated_name.ljust(max_filename_len)
+
+        def callback(advanced: int):
+            nonlocal task_id
+            if task_id is None:
+                task_id = _progress.add_task("Copying", filename=padded_name, total=job.size)
+            _progress.advance(task_id, advanced)
+            if _overall_task_id is not None:
+                _progress.advance(_overall_task_id, advanced)
+
+        progress_callback = callback
+
+    try:
+        return copy_file(
+            job.source, job.destination, config.conflict_policy, config.verification_method,
+            config.verification_failure_behavior, buffer_size=config.buffer_size,
+            max_retries=config.max_retries, retry_base_delay=config.retry_base_delay,
+            retry_exponential_backoff=config.retry_exponential_backoff,
+            progress_callback=progress_callback
+        )
+    finally:
+        if _progress is not None and task_id is not None:
+            _progress.remove_task(task_id)
 
 
 def setup_logging(config: Config, dry_run: bool) -> None:
@@ -349,12 +364,12 @@ def run_dry_run(sync_jobs: List[SyncJob], config: Config, stats: SyncStats) -> L
         dest_file = job.destination
         status = SyncStatus.COPIED
         level = logging.INFO
-        
+
         if dest_file.exists():
             level = logging.WARNING
             if config.conflict_policy == "skip":
                 is_match = (
-                    config.verification_method == "none" or 
+                    config.verification_method == "none" or
                     verify_copy(source_file, dest_file, config.verification_method, buffer_size=config.buffer_size)
                 )
                 status = SyncStatus.SKIPPED if is_match else SyncStatus.OVERWRITTEN
@@ -366,18 +381,22 @@ def run_dry_run(sync_jobs: List[SyncJob], config: Config, stats: SyncStats) -> L
 
         status_text = status.value.capitalize()
         logger.log(
-            level, 
-            f"[DRY RUN] {status_text}: {source_file} -> {dest_file}", 
+            level,
+            f"[DRY RUN] {status_text}: {source_file} -> {dest_file}",
             extra={"filename_only": source_file.name, "status_text": status_text, "is_dry_run": True}
         )
         result = FileResult(
-            status, 
-            source_file, 
-            dest_file, 
+            status,
+            source_file,
+            dest_file,
             bytes_transferred=(job.size if status != SyncStatus.SKIPPED else 0)
         )
         results.append(result)
         stats.update(result)
+        # Refresh from the main thread (dry-run is synchronous) so the display
+        # updates once per file rather than on every internal render cycle.
+        if _live_ui is not None:
+            _live_ui.refresh()
     return results
 
 
@@ -389,19 +408,22 @@ def run_sync_jobs(sync_jobs: List[SyncJob], config: Config, stats: SyncStats) ->
             result = future.result()
             status_text = result.status.value.capitalize()
             msg = f"{status_text}: {result.source_path} -> {result.destination_path}"
-            
+
             if result.status == SyncStatus.COPIED:
                 logger.info(msg, extra={"filename_only": result.source_path.name, "status_text": status_text})
             elif result.status == SyncStatus.FAILED:
                 logger.error(
-                    f"Failed: {result.source_path} - {result.error_message}", 
+                    f"Failed: {result.source_path} - {result.error_message}",
                     extra={"filename_only": result.source_path.name, "status_text": "Failed"}
                 )
             else:
                 logger.warning(msg, extra={"filename_only": result.source_path.name, "status_text": status_text})
-            
+
             results.append(result)
             stats.update(result)
+            # Refresh from the main thread only — avoids concurrent write races.
+            if _live_ui is not None:
+                _live_ui.refresh()
     return results
 
 
@@ -432,16 +454,38 @@ def run_sync(config: Config, dry_run: bool = False, show_summary: bool = True) -
     start_time = time.perf_counter()
     
     from rich.live import Live
-    global _live_ui
-    _live_ui = Live(LiveSummaryRenderable(stats, start_time, dry_run), console=console, auto_refresh=False)
-    
+    global _live_ui, _progress, _overall_task_id
+
+    # Single fixed-height progress bar: stable line count eliminates height-change flicker.
+    total_bytes = sum(job.size for job in sync_jobs)
+    _progress = Progress(
+        TextColumn("[cyan]Syncing[/cyan]", justify="left"),
+        TextColumn("{task.fields[filename]}", justify="left"),
+        BarColumn(bar_width=30),
+        TaskProgressColumn(),
+        DownloadColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    )
+    _overall_task_id = _progress.add_task("Total Progress", filename="", total=total_bytes if total_bytes > 0 else 1)
+    group = Group(_progress, LiveSummaryRenderable(stats, start_time, dry_run))
+
+    # auto_refresh at 4fps: smooth progress for large files. Height is fixed (single
+    # aggregate task), so background redraws no longer cause flickering.
+    _live_ui = Live(group, console=console, auto_refresh=True, refresh_per_second=4, transient=True)
+
     with _live_ui:
+        _live_ui.refresh()  # Initial render
         if dry_run:
             results = run_dry_run(sync_jobs, config, stats)
         else:
             results = run_sync_jobs(sync_jobs, config, stats)
-    
+        _live_ui.refresh()  # Final render before exit
+
     _live_ui = None
+    _progress = None
+    _overall_task_id = None
+
     end_time = time.perf_counter()
     
     if show_summary:

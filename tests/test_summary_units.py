@@ -86,9 +86,6 @@ def test_print_summary_with_failures(capsys):
     assert "Failed" in captured.err
     assert "Total Data" in captured.err
     assert "600.00 B" in captured.err
-    assert "Failures:" in captured.err
-    assert "b.jpg" in captured.err
-    assert "Disk full" in captured.err
     assert "Average Speed:" in captured.err
     assert "300.00 B/s" in captured.err
 

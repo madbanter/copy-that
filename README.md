@@ -24,8 +24,8 @@ Optimized for photographers and media creators:
 - **Pre-flight Checks**: Optional disk space estimation and a comprehensive **Dry Run** mode to see results before any data is moved.
 
 ### Modern CLI Experience
-- **Clean Feedback**: Concise single-line console logging with automated filename truncation to prevent UI flickering.
-- **Rich Reporting**: Real-time live footer summary (with elapsed time) and a post-sync detailed report of any warnings or errors.
+- **Clean Feedback**: Concise console logging with automated filename truncation and sequential output to maintain a clear history.
+- **Rich Reporting**: Real-time progress bars for active transfers and a live summary footer that automatically cleans itself up (transient display) to leave a pristine post-sync detailed report.
 - **Unified Logging**: Consistent logging across dry runs and actual executions, with full path details available in audit logs.
 - **Verbosity Control**: Three levels of verbosity (minimal, normal, verbose) to keep the console clean or provide deep technical context.
 - **Zero-Config Discovery**: Automatically searches for configuration in standard locations (`./config.yaml`, `~/.config/copy-that/`, etc.).
