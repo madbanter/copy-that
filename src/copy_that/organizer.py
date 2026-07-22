@@ -1,6 +1,7 @@
 import datetime
 import os
 import logging
+import re
 import exifread
 from pathlib import Path
 from typing import Literal, Dict, Any, Optional
@@ -34,6 +35,43 @@ def get_exif_metadata(file_path: Path) -> Dict[str, str]:
         
     return metadata
 
+def date_format_to_regex(date_format: str) -> re.Pattern:
+    """Translate a strptime date format string into a compiled regex Pattern."""
+    if not isinstance(date_format, str):
+        raise TypeError("date_format must be a string")
+    placeholder_map = {
+        "%Y": "__YEAR4__",
+        "%y": "__YEAR2__",
+        "%m": "__MONTH__",
+        "%d": "__DAY__",
+        "%H": "__HOUR__",
+        "%M": "__MINUTE__",
+        "%S": "__SECOND__",
+    }
+    
+    temp = date_format
+    for directive, placeholder in placeholder_map.items():
+        temp = temp.replace(directive, placeholder)
+        
+    escaped = re.escape(temp)
+    
+    regex_map = {
+        "__YEAR4__": r"\d{4}",
+        "__YEAR2__": r"\d{2}",
+        "__MONTH__": r"\d{2}",
+        "__DAY__": r"\d{2}",
+        "__HOUR__": r"\d{2}",
+        "__MINUTE__": r"\d{2}",
+        "__SECOND__": r"\d{2}",
+    }
+    
+    pattern = escaped
+    for placeholder, regex_pattern in regex_map.items():
+        pattern = pattern.replace(placeholder, regex_pattern)
+        
+    return re.compile(pattern)
+
+
 def get_file_date(
     file_path: Path, 
     source: Literal["creation", "modification", "filename", "exif"] = "creation",
@@ -58,17 +96,17 @@ def get_file_date(
 
     if source == "filename":
         try:
-            # Get a sample formatted string to determine the expected length
-            sample_date = datetime.datetime(2000, 1, 1, 12, 0, 0)
-            expected_length = len(sample_date.strftime(filename_date_format))
-            
-            # Extract the relevant part of the filename stem
             stem = file_path.stem
-            if len(stem) >= expected_length:
-                date_str = stem[:expected_length]
+            regex = date_format_to_regex(filename_date_format)
+            match = regex.search(stem)
+            
+            if match:
+                date_str = match.group(0)
                 return datetime.datetime.strptime(date_str, filename_date_format)
             else:
-                raise ValueError(f"Filename stem '{stem}' is shorter than expected length {expected_length}")
+                raise ValueError(
+                    f"Could not find pattern matching format '{filename_date_format}' in stem '{stem}'"
+                )
         except (ValueError, TypeError) as e:
             logger.warning(
                 f"Could not parse date from filename '{file_path.name}' "

@@ -63,3 +63,22 @@ def test_discover_files_exclude_directory_regex(tmp_path):
     
     assert len(results) == 1
     assert results[0][0].name == "file1.jpg"
+
+def test_discover_files_exclude_relative_glob(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    
+    keep_dir = source / "keep"
+    keep_dir.mkdir()
+    (keep_dir / "file1.jpg").write_text("file1")
+    
+    skip_dir = source / "skip_me"
+    skip_dir.mkdir()
+    (skip_dir / "file2.jpg").write_text("file2")
+    
+    # Exclude via relative glob path pattern
+    results = list(discover_files(source, [".jpg"], exclude_patterns=["skip_me/*"]))
+    
+    assert len(results) == 1
+    assert results[0][0].name == "file1.jpg"
+

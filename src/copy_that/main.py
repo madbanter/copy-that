@@ -6,6 +6,7 @@ import time
 import os
 import signal
 import fnmatch
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional, List, Any, Tuple
@@ -39,6 +40,12 @@ highlighter = ReprHighlighter()
 _live_ui = None
 _progress = None
 _overall_task_id = None
+
+# Global references for thread-safe path registries and locks
+_allocated_paths = None
+_allocated_lock = None
+_active_temp_files = None
+_active_temp_lock = None
 
 
 @dataclass
@@ -289,6 +296,7 @@ def perform_space_check(sync_jobs: List[SyncJob], config: Config) -> None:
 
 def process_single_file(job: SyncJob, config: Config) -> FileResult:
     global _progress, _overall_task_id
+    global _allocated_paths, _allocated_lock, _active_temp_files, _active_temp_lock
     task_id = None
     progress_callback = None
 
@@ -314,7 +322,11 @@ def process_single_file(job: SyncJob, config: Config) -> FileResult:
             config.verification_failure_behavior, buffer_size=config.buffer_size,
             max_retries=config.max_retries, retry_base_delay=config.retry_base_delay,
             retry_exponential_backoff=config.retry_exponential_backoff,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            allocated_paths=_allocated_paths,
+            allocated_lock=_allocated_lock,
+            active_temp_files=_active_temp_files,
+            active_temp_lock=_active_temp_lock
         )
     finally:
         if _progress is not None and task_id is not None:
@@ -455,6 +467,12 @@ def run_sync(config: Config, dry_run: bool = False, show_summary: bool = True) -
     
     from rich.live import Live
     global _live_ui, _progress, _overall_task_id
+    global _allocated_paths, _allocated_lock, _active_temp_files, _active_temp_lock
+
+    _allocated_paths = set()
+    _allocated_lock = threading.Lock()
+    _active_temp_files = set()
+    _active_temp_lock = threading.Lock()
 
     # Single fixed-height progress bar: stable line count eliminates height-change flicker.
     total_bytes = sum(job.size for job in sync_jobs)
@@ -474,17 +492,31 @@ def run_sync(config: Config, dry_run: bool = False, show_summary: bool = True) -
     # aggregate task), so background redraws no longer cause flickering.
     _live_ui = Live(group, console=console, auto_refresh=True, refresh_per_second=4, transient=True)
 
-    with _live_ui:
-        _live_ui.refresh()  # Initial render
-        if dry_run:
-            results = run_dry_run(sync_jobs, config, stats)
-        else:
-            results = run_sync_jobs(sync_jobs, config, stats)
-        _live_ui.refresh()  # Final render before exit
+    try:
+        with _live_ui:
+            _live_ui.refresh()  # Initial render
+            if dry_run:
+                results = run_dry_run(sync_jobs, config, stats)
+            else:
+                results = run_sync_jobs(sync_jobs, config, stats)
+            _live_ui.refresh()  # Final render before exit
+    finally:
+        # Graceful cleanup of any remaining orphaned temporary files
+        if _active_temp_files:
+            with _active_temp_lock:
+                for temp_path in list(_active_temp_files):
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
-    _live_ui = None
-    _progress = None
-    _overall_task_id = None
+        _live_ui = None
+        _progress = None
+        _overall_task_id = None
+        _allocated_paths = None
+        _allocated_lock = None
+        _active_temp_files = None
+        _active_temp_lock = None
 
     end_time = time.perf_counter()
     

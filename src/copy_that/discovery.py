@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 class FileFilter:
     """Handles glob and regex based file/directory filtering."""
     
-    def __init__(self, exclude_patterns: List[str] = None, exclude_regex: List[str] = None):
+    def __init__(self, source_dir: Path, exclude_patterns: List[str] = None, exclude_regex: List[str] = None):
+        self.source_dir = source_dir
         self.exclude_patterns = exclude_patterns or []
         self.exclude_regex = [re.compile(r) for r in (exclude_regex or [])]
 
@@ -18,15 +19,19 @@ class FileFilter:
         """Return True if the path matches any exclude pattern or regex."""
         name = path.name
         path_str = str(path)
+        try:
+            relative_path_str = str(path.relative_to(self.source_dir))
+        except ValueError:
+            relative_path_str = name
         
-        # Check glob patterns against the name
+        # Check glob patterns against both the name and relative path
         for pattern in self.exclude_patterns:
-            if fnmatch.fnmatch(name, pattern):
+            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(relative_path_str, pattern):
                 return True
         
-        # Check regex against the full path string
+        # Check regex against the full path string and relative path string
         for regex in self.exclude_regex:
-            if regex.search(path_str):
+            if regex.search(path_str) or regex.search(relative_path_str):
                 return True
         
         return False
@@ -46,7 +51,7 @@ def discover_files(
     # Ensure extensions start with a dot for consistency with pathlib suffix
     normalized_exts = {ext if ext.startswith('.') else f'.{ext}' for ext in ext_set}
     
-    file_filter = FileFilter(exclude_patterns, exclude_regex)
+    file_filter = FileFilter(source_dir, exclude_patterns, exclude_regex)
     
     yield from _scan_recursive(source_dir, normalized_exts, file_filter)
 

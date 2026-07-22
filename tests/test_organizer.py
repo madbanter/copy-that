@@ -265,3 +265,18 @@ def test_generate_destination_path_template_missing_token(tmp_path):
     # Check that it ends with the current year folder and filename
     year = datetime.datetime.now().strftime("%Y")
     assert str(dest).endswith(f"{year}/test.jpg")
+
+def test_get_file_date_filename_with_prefix_suffix(tmp_path):
+    """Test that filename date parsing works with arbitrary prefixes and suffixes."""
+    # Prefix (DSC_)
+    source = tmp_path / "DSC_2026-07-22.jpg"
+    source.write_text("data")
+    date = get_file_date(source, source="filename", filename_date_format="%Y-%m-%d")
+    assert date == datetime.datetime(2026, 7, 22, 0, 0, 0)
+
+    # Prefix (WhatsApp Image ) and Suffix ( at 15.30.45)
+    source2 = tmp_path / "WhatsApp Image 2026-07-22 at 15.30.45.jpg"
+    source2.write_text("data")
+    date2 = get_file_date(source2, source="filename", filename_date_format="%Y-%m-%d")
+    assert date2 == datetime.datetime(2026, 7, 22, 0, 0, 0)
+

@@ -73,12 +73,21 @@ class Monitor:
         self.observer.schedule(handler, str(path), recursive=True)
 
     def watch_mounts(self, mount_points: List[Path], on_mount: Callable, whitelist: List[str]):
+        if not mount_points:
+            logger.warning("No mount points configured to watch.")
+            return
+            
         monitor = MountMonitor(mount_points, on_mount, whitelist)
         class MountHandler(FileSystemEventHandler):
             def on_any_event(self, event):
                 monitor.check()
         handler = MountHandler()
-        self.observer.schedule(handler, str(mount_points[0]), recursive=False)
+        
+        for mp in mount_points:
+            if mp.exists():
+                self.observer.schedule(handler, str(mp), recursive=False)
+            else:
+                logger.warning(f"Mount point path does not exist, skipping watch: {mp}")
 
     def run(self):
         self.observer.start()

@@ -136,3 +136,40 @@ def test_copy_file_source_missing_graceful(tmp_path):
     assert result.status == SyncStatus.FAILED
     assert result.error_message and "Source file inaccessible" in result.error_message
     assert not dest.exists()
+
+
+def test_graceful_cleanup_of_temp_files(tmp_path):
+    from copy_that.config import Config
+    from copy_that.main import run_sync
+    import copy_that.main
+    
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "file1.jpg").write_text("data")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    
+    config = Config(
+        source_directory=source_dir,
+        destination_base=dest_dir,
+        max_workers=1,
+        pre_sync_space_check=False
+    )
+    
+    # Create a dummy temp file that we want to simulate is currently being written
+    dummy_temp = dest_dir / "dummy.jpg.ct-tmp"
+    dummy_temp.write_text("partial data")
+    
+    # Mock run_sync_jobs to insert our dummy_temp into _active_temp_files and raise ValueError
+    def mock_run_sync_jobs(sync_jobs, config, stats):
+        copy_that.main._active_temp_files.add(dummy_temp)
+        raise ValueError("Simulated crash")
+        
+    with patch("copy_that.main.run_sync_jobs", side_effect=mock_run_sync_jobs):
+        with pytest.raises(ValueError, match="Simulated crash"):
+            run_sync(config, show_summary=False)
+            
+    # Verify that the dummy temp file was cleaned up by the finally block of run_sync
+    assert not dummy_temp.exists()
+
+
