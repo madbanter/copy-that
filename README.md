@@ -17,10 +17,11 @@ Optimized for photographers and media creators:
 
 ### Reliability & Safety
 - **Atomic Writes**: Every copy operation is performed to a temporary `.ct-tmp` file and only renamed to the final path after a successful integrity check. This prevents half-finished or corrupted files from cluttering your destination.
+- **Interrupt Cleanup**: If the process is interrupted mid-sync, any in-flight `.ct-tmp` files are automatically unlinked before exit, leaving no partial data at the destination.
 - **Robust Retries**: Automatically handles transient hardware glitches or driver "hiccups" with configurable retries and exponential backoff.
-- **Metadata Preservation**: Keeps your original file timestamps and permissions intact.
+- **Metadata Preservation**: Keeps your original file timestamps and permissions intact, with a graceful fallback for filesystems with limited attribute support (e.g., FAT32, exFAT, SMB shares).
 - **Data Verification**: Optional post-copy checksumming (MD5, SHA1, or Size) to ensure data integrity.
-- **Safe Conflicts**: Configurable policies to skip, overwrite, or rename files if they already exist at the destination.
+- **Safe Conflicts**: Configurable policies to skip, overwrite, or rename files if they already exist at the destination. Rename allocation is thread-safe, preventing two workers from targeting the same suffix concurrently.
 - **Pre-flight Checks**: Optional disk space estimation and a comprehensive **Dry Run** mode to see results before any data is moved.
 
 ### Modern CLI Experience
@@ -77,10 +78,10 @@ CopyThat runs background services for file watching and mount detection.
 - `--template`: Path template (e.g., '{year}/{make}/{filename}.{ext}'). Overrides `mode` and `folder-format`.
 - `--format`: Folder format string for `date` mode. (Default: `%Y%m%d`)
 - `--date-source`: Source for date metadata (`creation`, `modification`, `filename`, or `exif`). (Default: `creation`)
-- `--filename-date-format`: Date format pattern if `date-source` is set to `filename`.
+- `--filename-date-format`: Date format pattern (strftime) if `date-source` is set to `filename`. The date is extracted by regex from anywhere in the filename stem, so a prefix or suffix (e.g., `DSC_`, `_edited`) is handled automatically.
 - `--ext`: Include specific file extensions (can be repeated).
-- `--exclude`: Glob pattern(s) to exclude (can be repeated).
-- `--exclude-regex`: Regex pattern(s) to exclude (can be repeated).
+- `--exclude`: Glob pattern(s) to exclude (can be repeated). Patterns are matched against both the bare filename and the path relative to the source directory, so subdirectory globs such as `RAW/**` work as expected.
+- `--exclude-regex`: Regex pattern(s) to exclude (can be repeated). Applied against both the bare filename and the relative path from the source root.
 - `--conflict`: Conflict policy (`skip`, `overwrite`, or `rename`).
 - `--verify`: Verification method (`none`, `size`, `md5`, or `sha1`).
 - `--verify-behavior`: Verification failure behavior (`retry`, `ignore`, or `delete`).
@@ -104,7 +105,8 @@ Relative paths within these files (e.g., `source_directory: ./photos`) are resol
 See `example_config.yaml` for a full list of supported settings and descriptions.
 
 ## Technical Principles
-- **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types.
+- **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types. An in-memory registry with thread locks prevents workers from allocating the same destination path simultaneously.
 - **Data-First**: Always copies rather than moves, ensuring your source media remains untouched.
 - **Strict Validation**: Utilizes type-safe configuration parsing to catch errors early.
-- **Robust Error Handling**: Gracefully handles disk disconnection, permission issues, and corrupt files.
+- **Robust Error Handling**: Gracefully handles disk disconnection, permission issues, and corrupt files. Unfinished temporary files are cleaned up automatically on interrupt or error.
+- **Multi-Mount Watching**: When using auto-mount detection, all configured `auto_mount_points` are monitored simultaneously.

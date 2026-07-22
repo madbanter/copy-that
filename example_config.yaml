@@ -34,8 +34,10 @@ path_template: null
 date_source: "creation"
 
 # Date format pattern if 'date_source' is set to 'filename'.
-# This must match the beginning of your filename.
-# e.g., '2015-12-26 15.13.52.jpg' matches '%Y-%m-%d %H.%M.%S'
+# CopyThat compiles this format string into a regex and extracts the matching
+# date from anywhere in the filename stem, so prefixes or suffixes such as
+# 'DSC_', 'IMG_', or '_edited' are handled automatically.
+# e.g., 'DSC_2015-12-26 15.13.52.jpg' matches '%Y-%m-%d %H.%M.%S'
 filename_date_format: "%Y-%m-%d %H.%M.%S"
 
 # --- Filtering ---
@@ -49,10 +51,14 @@ include_extensions:
   - .mp4
   - .xmp
 
-# List of glob patterns to exclude (e.g., 'IMG_*', '*.tmp').
+# List of glob patterns to exclude (e.g., 'IMG_*', '*.tmp', 'RAW/**').
+# Each pattern is matched against both the bare filename and the file's path
+# relative to the source directory, so subdirectory patterns work as expected.
 exclude_patterns: []
 
-# List of regex patterns to exclude (matches against full path string).
+# List of regex patterns to exclude.
+# Each pattern is matched against both the bare filename and the file's path
+# relative to the source directory.
 exclude_regex: []
 
 # --- Conflict & Reliability ---
@@ -79,7 +85,9 @@ verification_failure_behavior: "retry"
 watch_debounce: 5.0
 # Enable/disable auto-mount drive detection
 auto_mount_enabled: false
-# List of paths to monitor for new mounts
+# List of paths to monitor for new mounts.
+# All entries are watched simultaneously; a warning is logged for any path
+# that does not exist at startup.
 auto_mount_points: ["/Volumes", "/media"]
 # Patterns to automatically sync (if left empty, all drives are prompted or synced based on interactive_prompt)
 auto_mount_whitelist: []
