@@ -280,3 +280,26 @@ def test_get_file_date_filename_with_prefix_suffix(tmp_path):
     date2 = get_file_date(source2, source="filename", filename_date_format="%Y-%m-%d")
     assert date2 == datetime.datetime(2026, 7, 22, 0, 0, 0)
 
+
+def test_get_file_date_exif_malformed_falls_back_to_creation(tmp_path, caplog):
+    """Malformed EXIF date string logs a warning and falls back to creation time."""
+    from copy_that.organizer import get_file_date
+    source = tmp_path / "photo.jpg"
+    source.write_text("data")
+
+    bad_exif = {"date_taken": "NOT-A-DATE"}
+    import logging
+    with caplog.at_level(logging.WARNING, logger="copy_that.organizer"):
+        result = get_file_date(source, source="exif", exif_metadata=bad_exif)
+
+    assert isinstance(result, datetime.datetime)
+    assert "Could not parse EXIF date" in caplog.text
+
+
+def test_date_format_to_regex_type_error():
+    """date_format_to_regex raises TypeError on non-string input."""
+    from copy_that.organizer import date_format_to_regex
+    with pytest.raises(TypeError, match="date_format must be a string"):
+        date_format_to_regex(None)
+
+

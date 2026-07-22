@@ -3,7 +3,7 @@ import hashlib
 import shutil
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from copy_that.processor import copy_file, calculate_checksum, verify_copy, get_unique_path, SyncStatus, FileResult
 
 def test_calculate_checksum(tmp_path):
@@ -279,3 +279,70 @@ def test_copy_file_permission_error(tmp_path, monkeypatch):
     result = copy_file(source, dest)
     assert result.status == SyncStatus.FAILED
     assert "Permission denied" in result.error_message
+
+
+def test_copy_file_copystat_oserror_utime_fallback(tmp_path, monkeypatch, caplog):
+    """copystat OSError triggers utime fallback; file is still successfully copied."""
+    source = tmp_path / "source.txt"
+    source.write_text("data")
+    dest = tmp_path / "dest.txt"
+
+    monkeypatch.setattr(shutil, "copystat", MagicMock(side_effect=OSError("copystat not supported")))
+
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="copy_that.processor"):
+        result = copy_file(source, dest)
+
+    assert result.status == SyncStatus.COPIED
+    assert dest.read_text() == "data"
+    assert "copystat failed" in caplog.text
+
+
+def test_copy_file_copystat_and_utime_both_fail(tmp_path, monkeypatch, caplog):
+    """When both copystat and os.utime fail, a warning is logged but copy still succeeds."""
+    import os as _os
+    source = tmp_path / "source.txt"
+    source.write_text("data")
+    dest = tmp_path / "dest.txt"
+
+    monkeypatch.setattr(shutil, "copystat", MagicMock(side_effect=OSError("copystat failed")))
+    monkeypatch.setattr(_os, "utime", MagicMock(side_effect=OSError("utime failed")))
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="copy_that.processor"):
+        result = copy_file(source, dest)
+
+    assert result.status == SyncStatus.COPIED
+    assert "Could not preserve timestamps" in caplog.text
+
+
+def test_get_unique_path_with_lock_and_allocated(tmp_path):
+    """get_unique_path with lock= correctly allocates via the in-memory set."""
+    import threading
+    lock = threading.Lock()
+    allocated: set = set()
+
+    base = tmp_path / "image.jpg"
+    # Path does not exist on disk; first call returns base and registers it
+    result1 = get_unique_path(base, allocated_paths=allocated, lock=lock)
+    assert result1 == base
+    assert base in allocated
+
+    # Second call: base is now allocated, should return image_1.jpg
+    result2 = get_unique_path(base, allocated_paths=allocated, lock=lock)
+    assert result2 == tmp_path / "image_1.jpg"
+    assert result2 in allocated
+
+
+def test_get_unique_path_allocated_only_no_disk(tmp_path):
+    """get_unique_path without a lock still respects the allocated_paths set."""
+    allocated: set = set()
+    base = tmp_path / "photo.jpg"
+
+    r1 = get_unique_path(base, allocated_paths=allocated, lock=None)
+    assert r1 == base
+    assert base in allocated
+
+    r2 = get_unique_path(base, allocated_paths=allocated, lock=None)
+    assert r2 == tmp_path / "photo_1.jpg"
+

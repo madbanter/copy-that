@@ -82,3 +82,22 @@ def test_discover_files_exclude_relative_glob(tmp_path):
     assert len(results) == 1
     assert results[0][0].name == "file1.jpg"
 
+
+def test_file_filter_path_outside_source_dir(tmp_path):
+    """FileFilter.should_exclude falls back to bare name when path is outside source_dir."""
+    from copy_that.discovery import FileFilter
+
+    source = tmp_path / "source"
+    source.mkdir()
+    outside = tmp_path / "other" / "image.jpg"
+    outside.parent.mkdir()
+    outside.write_text("data")
+
+    # Pattern matches the bare filename; relative_to will raise ValueError (outside source)
+    ff = FileFilter(source, exclude_patterns=["image.jpg"])
+    assert ff.should_exclude(outside) is True
+
+    # Pattern that would only match a relative path should NOT match, but name match takes precedence
+    ff2 = FileFilter(source, exclude_patterns=["other/image.jpg"])
+    # "other/image.jpg" won't match name "image.jpg" nor the fallback (which is also just "image.jpg")
+    assert ff2.should_exclude(outside) is False
