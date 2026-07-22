@@ -346,3 +346,52 @@ def test_get_unique_path_allocated_only_no_disk(tmp_path):
     r2 = get_unique_path(base, allocated_paths=allocated, lock=None)
     assert r2 == tmp_path / "photo_1.jpg"
 
+
+def test_is_retryable_error_non_oserror():
+    """is_retryable_error returns False for non-OSError exceptions."""
+    from copy_that.processor import is_retryable_error
+    assert is_retryable_error(ValueError("not an OS error")) is False
+    assert is_retryable_error(RuntimeError("also not")) is False
+
+
+def test_conflict_skip_allocated_not_on_disk(tmp_path):
+    """copy_file skips when destination is allocated in-memory but not yet on disk."""
+    import threading
+    source = tmp_path / "source.txt"
+    source.write_text("data")
+    dest = tmp_path / "dest.txt"  # intentionally not created on disk
+
+    allocated: set = {dest}  # pre-register as allocated
+    lock = threading.Lock()
+
+    result = copy_file(
+        source, dest,
+        conflict_policy="skip",
+        allocated_paths=allocated,
+        allocated_lock=lock,
+    )
+    assert result.status == SyncStatus.SKIPPED
+    assert not dest.exists()
+
+
+def test_copy_file_active_temp_files_lockless(tmp_path):
+    """active_temp_files add/discard path when active_temp_lock is None (lockless variant)."""
+    source = tmp_path / "source.txt"
+    source.write_text("hello")
+    dest = tmp_path / "dest.txt"
+
+    active: set = set()
+
+    result = copy_file(
+        source, dest,
+        active_temp_files=active,
+        active_temp_lock=None,  # exercise the lockless branch
+    )
+
+    assert result.status == SyncStatus.COPIED
+    assert dest.read_text() == "hello"
+    # Temp file should have been discarded from the set after successful rename
+    temp = dest.with_suffix(dest.suffix + ".ct-tmp")
+    assert temp not in active
+
+

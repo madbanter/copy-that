@@ -1,6 +1,9 @@
 import pytest
+import os
+import signal
 from pathlib import Path
-from copy_that.lifecycle import GracefulShutdown, ProcessLock
+from unittest.mock import patch
+from copy_that.lifecycle import GracefulShutdown, ProcessLock, stop_process, get_lock_file
 
 def test_process_lock(tmp_path, monkeypatch):
     # Mock home
@@ -24,3 +27,49 @@ def test_graceful_shutdown():
     # Manually trigger signal handler
     shutdown._handle_signal(15, None) # SIGTERM
     assert shutdown.shutdown_requested is True
+
+
+def test_stop_process_no_lock_file(tmp_path, monkeypatch):
+    """stop_process returns False immediately when no lock file exists."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert stop_process("nonexistent-service") is False
+
+
+def test_stop_process_sends_sigterm(tmp_path, monkeypatch):
+    """stop_process reads PID from lock file and sends SIGTERM; returns True."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    lock_file = get_lock_file("test-svc")
+    lock_file.write_text(str(os.getpid()))
+
+    signals_sent = []
+    def mock_kill(pid, sig):
+        signals_sent.append((pid, sig))
+
+    with patch("os.kill", side_effect=mock_kill):
+        result = stop_process("test-svc")
+
+    assert result is True
+    assert signals_sent == [(os.getpid(), signal.SIGTERM)]
+
+
+def test_stop_process_process_lookup_error(tmp_path, monkeypatch):
+    """stop_process returns False when the PID no longer exists."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    lock_file = get_lock_file("dead-svc")
+    lock_file.write_text("99999999")  # Very unlikely to be a live PID
+
+    with patch("os.kill", side_effect=ProcessLookupError):
+        result = stop_process("dead-svc")
+
+    assert result is False
+
+
+def test_stop_process_corrupt_pid_file(tmp_path, monkeypatch):
+    """stop_process returns False when the lock file contains non-integer data."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    lock_file = get_lock_file("corrupt-svc")
+    lock_file.write_text("not-a-pid")
+
+    result = stop_process("corrupt-svc")
+    assert result is False
+
