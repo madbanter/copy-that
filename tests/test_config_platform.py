@@ -31,3 +31,20 @@ def test_get_default_log_file_other(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     path = get_default_log_file()
     assert str(path) == "/home/mockuser/.copy-that/sync.log"
+
+from copy_that.config import Config
+
+def test_auto_mount_points_darwin(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    c = Config(destination_base=Path("/tmp"))
+    assert c.auto_mount_points == [Path("/Volumes")]
+
+def test_auto_mount_points_linux(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    c = Config(destination_base=Path("/tmp"))
+    assert c.auto_mount_points == [Path("/media")]
+
+def test_auto_mount_points_win32(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    c = Config(destination_base=Path("/tmp"))
+    assert c.auto_mount_points == []

@@ -38,8 +38,8 @@ def test_stop_process_no_lock_file(tmp_path, monkeypatch):
 def test_stop_process_sends_sigterm(tmp_path, monkeypatch):
     """stop_process reads PID from lock file and sends SIGTERM; returns True."""
     monkeypatch.setenv("HOME", str(tmp_path))
-    lock_file = get_lock_file("test-svc")
-    lock_file.write_text(str(os.getpid()))
+    lock = ProcessLock("test-svc")
+    lock.acquire()
 
     signals_sent = []
     def mock_kill(pid, sig):
@@ -50,26 +50,31 @@ def test_stop_process_sends_sigterm(tmp_path, monkeypatch):
 
     assert result is True
     assert signals_sent == [(os.getpid(), signal.SIGTERM)]
+    lock.release()
 
 
 def test_stop_process_process_lookup_error(tmp_path, monkeypatch):
     """stop_process returns False when the PID no longer exists."""
     monkeypatch.setenv("HOME", str(tmp_path))
-    lock_file = get_lock_file("dead-svc")
-    lock_file.write_text("99999999")  # Very unlikely to be a live PID
+    lock = ProcessLock("dead-svc")
+    lock.acquire()
+    lock._pid_file.write_text("99999999")
 
     with patch("os.kill", side_effect=ProcessLookupError):
         result = stop_process("dead-svc")
 
     assert result is False
+    lock.release()
 
 
 def test_stop_process_corrupt_pid_file(tmp_path, monkeypatch):
     """stop_process returns False when the lock file contains non-integer data."""
     monkeypatch.setenv("HOME", str(tmp_path))
-    lock_file = get_lock_file("corrupt-svc")
-    lock_file.write_text("not-a-pid")
+    lock = ProcessLock("corrupt-svc")
+    lock.acquire()
+    lock._pid_file.write_text("not-a-pid")
 
     result = stop_process("corrupt-svc")
     assert result is False
+    lock.release()
 
