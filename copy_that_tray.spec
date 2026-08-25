@@ -12,7 +12,7 @@ tmp_ret = collect_all('pydantic')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(
-    ['src/copy_that/tray.py'],
+    ['src/copy_that_tray.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
