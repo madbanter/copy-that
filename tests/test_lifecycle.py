@@ -78,3 +78,15 @@ def test_stop_process_corrupt_pid_file(tmp_path, monkeypatch):
     assert result is False
     lock.release()
 
+
+def test_stop_process_stale_pid_cleanup(tmp_path, monkeypatch):
+    """stop_process cleans up a stale .pid file when the lock is not held (crashed daemon)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    lock_file = get_lock_file("stale-svc")
+    pid_file = lock_file.with_suffix(".pid")
+    pid_file.write_text("12345")
+
+    result = stop_process("stale-svc")
+    assert result is False
+    assert not pid_file.exists()
+
