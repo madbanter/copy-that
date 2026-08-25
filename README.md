@@ -3,7 +3,9 @@
 A high-performance utility designed to automate the transfer and organization of files from external drives (e.g., SD cards, external HDDs) to a structured destination.
 
 ## Core Workflow
+
 Optimized for photographers and media creators:
+
 1. **Scan**: Identify media files on a source drive.
 2. **Organize**: Generate destination paths based on date or source structure.
 3. **Copy**: High-speed transfer with metadata preservation and optional verification.
@@ -11,11 +13,13 @@ Optimized for photographers and media creators:
 ## Key Features
 
 ### Smart Organization
+
 - **Date Mode**: Automatically groups files into subfolders based on creation, modification, or **dates extracted from filenames** (e.g., `2024/03-March/20`).
 - **Mirror Mode**: Preserves your existing folder structure exactly as it is on the source.
 - **Case-Insensitive Filtering**: Broad support for extensions (e.g., `.JPG` and `.jpg` are handled identically).
 
 ### Reliability & Safety
+
 - **Atomic Writes**: Every copy operation is performed to a temporary `.ct-tmp` file and only renamed to the final path after a successful integrity check. This prevents half-finished or corrupted files from cluttering your destination.
 - **Interrupt Cleanup**: If the process is interrupted mid-sync, any in-flight `.ct-tmp` files are automatically unlinked before exit, leaving no partial data at the destination.
 - **Robust Retries**: Automatically handles transient hardware glitches or driver "hiccups" with configurable retries and exponential backoff.
@@ -25,6 +29,7 @@ Optimized for photographers and media creators:
 - **Pre-flight Checks**: Optional disk space estimation and a comprehensive **Dry Run** mode to see results before any data is moved.
 
 ### Modern CLI Experience
+
 - **Clean Feedback**: Concise console logging with automated filename truncation and sequential output to maintain a clear history.
 - **Rich Reporting**: Real-time progress bars for active transfers and a live summary footer that automatically cleans itself up (transient display) to leave a pristine post-sync detailed report.
 - **Unified Logging**: Consistent logging across dry runs and actual executions, with full path details available in audit logs.
@@ -57,7 +62,9 @@ copy-that --mode mirror
 ```
 
 ## Shell Completions
+
 To install shell completions for your current shell:
+
 ```bash
 copy-that --install-completion
 ```
@@ -66,7 +73,7 @@ copy-that --install-completion
 
 CopyThat runs background services for file watching and mount detection.
 
-- **Locking:** These services use kernel-level advisory locks to ensure single-instance operation. If a service crashes, the OS automatically releases the lock, eliminating "stale PID" issues.
+- **Locking:** These services use cross-platform file-based locking (via `filelock`) to ensure single-instance operation. If a service crashes, the OS automatically releases the lock, eliminating "stale PID" issues.
 - **Stopping:** Run `copy-that stop` to terminate all active background services. You can also target specific services using `--watch` or `--auto-mount`. Services are designed to shut down gracefully upon receiving a `SIGTERM` signal. *(Note: On Windows, background services are terminated forcefully due to OS limitations with signal handling, but file locks are still automatically released by the OS.)*
 
 ## CLI Options
@@ -95,7 +102,9 @@ CopyThat runs background services for file watching and mount detection.
 - `--verbose`, `-v`: Enable detailed logging.
 
 ## Configuration
+
 CopyThat looks for settings in:
+
 1. `./config.yaml`
 2. `~/.config/copy-that/config.yaml`
 3. `~/.copy-that.yaml`
@@ -110,7 +119,7 @@ This project uses `uv` for dependency management.
 
 ```bash
 # Install all dependencies (including dev tools)
-uv sync
+uv sync --group dev
 
 # Run tests with coverage
 uv run pytest --cov=copy_that --cov-report=term-missing
@@ -119,14 +128,15 @@ uv run pytest --cov=copy_that --cov-report=term-missing
 uv run ruff check src/ tests/
 uv run ruff format src/ tests/
 
-# Build standalone CLI executable (requires pyinstaller, added in future PR)
+# Build standalone CLI executable
 uv run pyinstaller copy_that_cli.spec
 
-# Build tray app (requires pyinstaller, added in future PR)
+# Build tray app
 uv run pyinstaller copy_that_tray.spec
 ```
 
 ## Technical Principles
+
 - **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types. An in-memory registry with thread locks prevents workers from allocating the same destination path simultaneously.
 - **Data-First**: Always copies rather than moves, ensuring your source media remains untouched.
 - **Strict Validation**: Utilizes type-safe configuration parsing to catch errors early.

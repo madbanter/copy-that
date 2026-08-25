@@ -86,9 +86,13 @@ watch_debounce: 5.0
 # Enable/disable auto-mount drive detection
 auto_mount_enabled: false
 # List of paths to monitor for new mounts.
+# Defaults are platform-dependent:
+#   macOS: ["/Volumes"]
+#   Linux: ["/media"]
+#   Windows: [] (must be configured explicitly; drive letters are not standardized)
 # All entries are watched simultaneously; a warning is logged for any path
 # that does not exist at startup.
-auto_mount_points: ["/Volumes", "/media"]
+# auto_mount_points: ["/Volumes"]
 # Patterns to automatically sync (if left empty, all drives are prompted or synced based on interactive_prompt)
 auto_mount_whitelist: []
 # Prompt before syncing from an unknown drive in interactive mode

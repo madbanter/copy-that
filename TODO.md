@@ -39,8 +39,8 @@
 
 ## 7. Deployment & Future Enhancements
 
-- [ ] **Standalone Application**: Package the app as a standalone executable.
-- [ ] **Menu Bar / System Tray Icon**: Add a resident icon for quick access and status monitoring.
+- [x] **Standalone Application**: Package the app as a standalone executable. (Completed: PyInstaller spec files for CLI and Tray)
+- [x] **Menu Bar / System Tray Icon**: Add a resident icon for quick access and status monitoring. (Completed: MVP using pystray)
 - [ ] **Containerization**: Provide a `Dockerfile` for easier deployment.
 - [ ] **Task Automation**: Migrate development commands (test, lint, build) from README to a comprehensive task runner (e.g., poe, Taskfile, or Make) to automate common workflows.
 - [ ] **Filesystem Limitations**: Background services (watch/auto-mount) are currently limited to local filesystems due to advisory locking limitations on NFS/SMB and cloud storage. Investigate cross-platform lock-file workarounds for these environments.
