@@ -59,7 +59,8 @@ class Config(BaseModel):
     # Automation & Monitoring
     watch_debounce: float = Field(default=5.0, ge=0.1)
     auto_mount_enabled: bool = False
-    auto_mount_points: List[Path] = Field(default_factory=lambda: [Path("/Volumes") if sys.platform == "darwin" else Path("/media")])
+    # Windows drive letters are not standardized; users must configure explicitly.
+    auto_mount_points: List[Path] = Field(default_factory=lambda: [] if sys.platform == "win32" else ([Path("/Volumes")] if sys.platform == "darwin" else [Path("/media")]))
     auto_mount_whitelist: List[str] = Field(default_factory=list)
     auto_mount_interactive_prompt: bool = True
 

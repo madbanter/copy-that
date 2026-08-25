@@ -1,9 +1,9 @@
 import os
 import signal
 import logging
-import fcntl
 from pathlib import Path
 from typing import Optional, Any
+from filelock import FileLock, Timeout
 
 logger = logging.getLogger(__name__)
 
@@ -17,48 +17,59 @@ def get_lock_file(name: str) -> Path:
 def stop_process(name: str) -> bool:
     """Reads PID from lock file and sends SIGTERM to the process."""
     lock_file = get_lock_file(name)
-    if not lock_file.exists():
+    pid_file = lock_file.with_suffix(".pid")
+    
+    if not pid_file.exists():
         return False
+        
+    lock = FileLock(str(lock_file), timeout=0)
     try:
-        with open(lock_file, "r") as f:
-            pid = int(f.read().strip())
-        os.kill(pid, signal.SIGTERM)
-        return True
-    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        lock.acquire()
+        # If we can acquire the lock, the process is dead (stale PID)
+        lock.release()
+        try:
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass
         return False
+    except Timeout:
+        # Lock is held, daemon is live
+        try:
+            with open(pid_file, "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, signal.SIGTERM)
+            return True
+        except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+            return False
 
 class ProcessLock:
     def __init__(self, name: str):
-        self.lock_file = get_lock_file(name)
-        self.file: Optional[Any] = None
+        base = get_lock_file(name)
+        self._lock = FileLock(str(base), timeout=0)
+        self._pid_file = base.with_suffix(".pid")
 
     def acquire(self) -> bool:
         """Attempt to acquire an exclusive lock. Returns True if successful."""
         try:
-            self.file = open(self.lock_file, "w")
-            fcntl.flock(self.file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # Store the PID in the lock file for visibility
-            self.file.write(str(os.getpid()))
-            self.file.flush()
+            self._lock.acquire()
+            self._pid_file.write_text(str(os.getpid()))
             return True
-        except PermissionError:
-            logger.error(f"Permission denied: Cannot access lock file {self.lock_file}")
+        except Timeout:
             return False
-        except (IOError, OSError):
-            if self.file:
-                self.file.close()
-                self.file = None
+        except PermissionError:
+            logger.error(f"Permission denied: Cannot access lock file {self._lock.lock_file}")
             return False
 
     def release(self):
         """Release the lock."""
-        if self.file:
-            try:
-                fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
-                self.file.close()
-            except Exception:
-                pass
-            self.file = None
+        try:
+            self._pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            self._lock.release()
+        except Exception:
+            pass
 
 class GracefulShutdown:
     def __init__(self):
