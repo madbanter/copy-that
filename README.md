@@ -67,7 +67,7 @@ copy-that --install-completion
 CopyThat runs background services for file watching and mount detection.
 
 - **Locking:** These services use kernel-level advisory locks to ensure single-instance operation. If a service crashes, the OS automatically releases the lock, eliminating "stale PID" issues.
-- **Stopping:** Run `copy-that stop` to terminate all active background services. You can also target specific services using `--watch` or `--auto-mount`. Services are designed to shut down gracefully upon receiving a `SIGTERM` signal.
+- **Stopping:** Run `copy-that stop` to terminate all active background services. You can also target specific services using `--watch` or `--auto-mount`. Services are designed to shut down gracefully upon receiving a `SIGTERM` signal. *(Note: On Windows, background services are terminated forcefully due to OS limitations with signal handling, but file locks are still automatically released by the OS.)*
 
 ## CLI Options
 
@@ -103,6 +103,28 @@ CopyThat looks for settings in:
 Relative paths within these files (e.g., `source_directory: ./photos`) are resolved relative to the **config file's location**, ensuring your setup works from any directory.
 
 See `example_config.yaml` for a full list of supported settings and descriptions.
+
+## Development
+
+This project uses `uv` for dependency management.
+
+```bash
+# Install all dependencies (including dev tools)
+uv sync
+
+# Run tests with coverage
+uv run pytest --cov=copy_that --cov-report=term-missing
+
+# Lint and format code
+uv run ruff check src/ tests/
+uv run ruff format src/ tests/
+
+# Build standalone CLI executable (requires pyinstaller, added in future PR)
+uv run pyinstaller copy_that_cli.spec
+
+# Build tray app (requires pyinstaller, added in future PR)
+uv run pyinstaller copy_that_tray.spec
+```
 
 ## Technical Principles
 - **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types. An in-memory registry with thread locks prevents workers from allocating the same destination path simultaneously.
