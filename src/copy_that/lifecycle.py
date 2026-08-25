@@ -26,11 +26,11 @@ def stop_process(name: str) -> bool:
     try:
         lock.acquire()
         # If we can acquire the lock, the process is dead (stale PID)
-        lock.release()
         try:
             pid_file.unlink(missing_ok=True)
         except Exception:
             pass
+        lock.release()
         return False
     except Timeout:
         # Lock is held, daemon is live
