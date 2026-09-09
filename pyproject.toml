@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Adam Brent", email = "adam.brent@gmail.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "exifread>=3.0.0",
     "filelock>=3.18.0",

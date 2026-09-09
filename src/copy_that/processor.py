@@ -33,22 +33,10 @@ class FileResult:
 
 def calculate_checksum(path: Path, algorithm: str, buffer_size: int = 1024 * 1024) -> str:
     """
-    Calculate the checksum of a file using the specified algorithm.
-    Utilizes hashlib.file_digest (Python 3.11+) if available for performance.
+    Calculate the checksum of a file using the specified algorithm via hashlib.file_digest.
     """
-    if hasattr(hashlib, "file_digest"):
-        with open(path, "rb") as f:
-            return hashlib.file_digest(f, algorithm).hexdigest()
-    
-    # Fallback for Python < 3.11
-    hasher = hashlib.new(algorithm)
     with open(path, "rb") as f:
-        while True:
-            chunk = f.read(buffer_size)
-            if not chunk:
-                break
-            hasher.update(chunk)
-    return hasher.hexdigest()
+        return hashlib.file_digest(f, algorithm).hexdigest()
 
 def verify_copy(
     source: Path, 
