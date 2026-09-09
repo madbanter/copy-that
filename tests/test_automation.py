@@ -43,7 +43,7 @@ def test_watch_command_basic(tmp_path):
 @patch("copy_that.main.ProcessLock")
 def test_watch_command_already_running(mock_lock_class, mock_setup_logging, tmp_path, caplog):
     mock_lock = MagicMock()
-    mock_lock.acquire.return_value = False
+    mock_lock.__enter__.side_effect = RuntimeError("Unable to acquire process lock")
     mock_lock_class.return_value = mock_lock
 
     source = tmp_path / "src"
@@ -72,7 +72,7 @@ def test_auto_mount_command_basic(mock_monitor_class, tmp_path):
 @patch("copy_that.main.ProcessLock")
 def test_auto_mount_already_running(mock_lock_class, mock_setup_logging, tmp_path, caplog):
     mock_lock = MagicMock()
-    mock_lock.acquire.return_value = False
+    mock_lock.__enter__.side_effect = RuntimeError("Unable to acquire process lock")
     mock_lock_class.return_value = mock_lock
 
     with caplog.at_level(logging.ERROR):

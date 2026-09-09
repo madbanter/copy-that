@@ -395,3 +395,81 @@ def test_copy_file_active_temp_files_lockless(tmp_path):
     assert temp not in active
 
 
+def test_copy_file_concurrent_same_destination_rename(tmp_path):
+    """Verify concurrent workers targeting the same new destination resolve unique paths without racing."""
+    import concurrent.futures
+    import threading
+
+    source1 = tmp_path / "source1.txt"
+    source2 = tmp_path / "source2.txt"
+    source1.write_text("content 1")
+    source2.write_text("content 2")
+
+    target = tmp_path / "output.txt"
+    allocated_paths = set()
+    lock = threading.Lock()
+
+    def run_worker(src):
+        return copy_file(
+            src,
+            target,
+            conflict_policy="rename",
+            allocated_paths=allocated_paths,
+            allocated_lock=lock,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(run_worker, source1), executor.submit(run_worker, source2)]
+        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+    assert len(results) == 2
+    statuses = {r.status for r in results}
+    destinations = {r.destination_path for r in results}
+
+    assert SyncStatus.COPIED in statuses
+    assert SyncStatus.RENAMED in statuses
+    assert len(destinations) == 2
+    assert target in destinations
+    assert (tmp_path / "output_1.txt") in destinations
+    assert {
+        target.read_text(),
+        (tmp_path / "output_1.txt").read_text(),
+    } == {"content 1", "content 2"}
+
+
+def test_copy_file_failed_verification_rename_recalculation(tmp_path):
+    """Verify that a failed verification under skip policy recalculates/reserves destination under lock when re-copying."""
+    import threading
+
+    source = tmp_path / "source.txt"
+    source.write_text("new content")
+    dest = tmp_path / "output.txt"
+    dest.write_text("old corrupt content")
+
+    allocated_paths = set()
+    lock = threading.Lock()
+
+    # Call 1: skip check verify_copy fails -> logger.warning, status=OVERWRITTEN
+    # Call 2: copy verification succeeds -> return FileResult
+    call_count = 0
+    def mock_verify(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return False if call_count == 1 else True
+
+    with patch("copy_that.processor.verify_copy", side_effect=mock_verify):
+        result = copy_file(
+            source=source,
+            destination=dest,
+            conflict_policy="skip",
+            verification_method="size",
+            allocated_paths=allocated_paths,
+            allocated_lock=lock,
+        )
+
+    assert result.status == SyncStatus.OVERWRITTEN
+    assert result.destination_path == dest
+    assert dest.read_text() == "new content"
+    assert dest in allocated_paths
+
+

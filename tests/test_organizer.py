@@ -303,3 +303,62 @@ def test_date_format_to_regex_type_error():
         date_format_to_regex(None)
 
 
+
+def test_generate_destination_path_sanitizes_tokens(tmp_path):
+    from copy_that.organizer import generate_destination_path
+    
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    source = source_root / "test_file.jpg"
+    source.write_text("data")
+    
+    dest_base = tmp_path / "dest"
+    
+    malicious_exif = {
+        "make": "../../../etc/passwd",
+        "model": "Sony/ILCE-7M3",
+        "date_taken": ""
+    }
+    
+    with patch("copy_that.organizer.get_exif_metadata", return_value=malicious_exif):
+        result = generate_destination_path(
+            source,
+            source_root,
+            dest_base,
+            mode="date",
+            date_source="creation",
+            path_template="{make}/{model}/{filename}.{ext}"
+        )
+        
+    # '..' becomes '_' and '/' becomes '_'
+    # "../../../etc/passwd" -> ".._.._.._etc_passwd" -> "______etc_passwd"
+    # "Sony/ILCE-7M3" -> "Sony_ILCE-7M3"
+    assert result == dest_base / "______etc_passwd" / "Sony_ILCE-7M3" / "test_file.jpg"
+
+def test_generate_destination_path_skips_exif_when_not_needed(tmp_path):
+    from copy_that.organizer import generate_destination_path
+    
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    source = source_root / "test.jpg"
+    source.write_text("data")
+    
+    dest_base = tmp_path / "dest"
+    
+    with patch("copy_that.organizer.get_exif_metadata") as mock_get_exif:
+        # Template doesn't use EXIF tokens, should not call get_exif_metadata
+        generate_destination_path(
+            source, source_root, dest_base, 
+            mode="date", date_source="creation", 
+            path_template="{year}/{filename}.{ext}"
+        )
+        mock_get_exif.assert_not_called()
+        
+        # Template uses {make}, should call get_exif_metadata
+        mock_get_exif.return_value = {"make": "TestMake", "model": "TestModel"}
+        generate_destination_path(
+            source, source_root, dest_base, 
+            mode="date", date_source="creation", 
+            path_template="{make}/{filename}.{ext}"
+        )
+        mock_get_exif.assert_called_once()

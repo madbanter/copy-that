@@ -29,7 +29,7 @@ def test_stop_command_both_stopped(mock_stop, caplog):
 @patch("copy_that.main.ProcessLock")
 def test_auto_mount_already_running(mock_lock_class, mock_setup_logging, tmp_path, caplog):
     mock_lock = MagicMock()
-    mock_lock.acquire.return_value = False
+    mock_lock.__enter__.side_effect = RuntimeError("Unable to acquire process lock")
     mock_lock_class.return_value = mock_lock
     
     with caplog.at_level(logging.ERROR):

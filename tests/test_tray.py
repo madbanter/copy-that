@@ -6,17 +6,17 @@ from copy_that.tray import TrayApp, is_daemon_running, get_tray_backend
 
 def test_is_daemon_running_true(monkeypatch):
     mock_lock = MagicMock()
-    # If acquire raises Timeout, daemon is running
+    # If __enter__ raises Timeout, daemon is running
     from filelock import Timeout
-    mock_lock.acquire.side_effect = Timeout(lock_file="mock")
+    mock_lock.__enter__.side_effect = Timeout(lock_file="mock")
     
     with patch("copy_that.tray.FileLock", return_value=mock_lock):
         assert is_daemon_running() is True
 
 def test_is_daemon_running_false(monkeypatch):
     mock_lock = MagicMock()
-    # If acquire succeeds, daemon is not running
-    mock_lock.acquire.return_value = None
+    # If __enter__ succeeds, daemon is not running
+    mock_lock.__enter__.return_value = mock_lock
     
     with patch("copy_that.tray.FileLock", return_value=mock_lock):
         assert is_daemon_running() is False
