@@ -19,9 +19,8 @@ def is_daemon_running() -> bool:
     lock_file = get_lock_file("watcher")
     lock = FileLock(str(lock_file), timeout=0)
     try:
-        lock.acquire()
-        lock.release()
-        return False
+        with lock:
+            return False
     except Timeout:
         return True
 

@@ -24,7 +24,7 @@ def get_exif_metadata(file_path: Path) -> Dict[str, str]:
                 if "Image Model" in tags: metadata["model"] = str(tags["Image Model"]).strip()
                 if "EXIF DateTimeOriginal" in tags: metadata["date_taken"] = str(tags["EXIF DateTimeOriginal"]).strip()
         except Exception as e:
-            logger.debug(f"Could not read EXIF from {file_path}: {e}")
+            logger.warning(f"Could not read EXIF from {file_path}: {e}")
             
     # Basic video metadata (Placeholder for future improvement, uses filesystem dates for now but can expand)
     # Most professional video tools use XMP or specific sidecars, but some metadata libraries can parse atoms.
@@ -131,6 +131,12 @@ def get_file_date(
     
     return datetime.datetime.fromtimestamp(timestamp)
 
+def _sanitize_path_token(value: str) -> str:
+    """Remove path traversal characters from a template token."""
+    sanitized = value.replace("/", "_").replace("\\", "_")
+    sanitized = sanitized.replace("..", "_")
+    return sanitized.strip()
+
 def generate_destination_path(
     source_file: Path,
     source_root: Path,
@@ -155,8 +161,10 @@ def generate_destination_path(
             subfolder_name = date.strftime(folder_format)
             return destination_base / subfolder_name / source_file.name
 
-    # Template-based mode needs EXIF for make/model tokens regardless of date_source
-    exif = get_exif_metadata(source_file)
+    # Template-based mode needs EXIF if date_source is exif or if the template uses EXIF tokens
+    EXIF_TOKENS = {"{make}", "{model}"} # Expand this list if more EXIF fields are added to context
+    needs_exif = (date_source == "exif") or any(token in path_template for token in EXIF_TOKENS)
+    exif = get_exif_metadata(source_file) if needs_exif else {"make": "Unknown", "model": "Unknown", "date_taken": ""}
     date = get_file_date(source_file, date_source, filename_date_format, exif_metadata=exif)
     
     context = {
@@ -166,17 +174,17 @@ def generate_destination_path(
         "hour": date.strftime("%H"),
         "minute": date.strftime("%M"),
         "second": date.strftime("%S"),
-        "ext": source_file.suffix.lstrip("."),
-        "filename": source_file.stem,
-        "make": exif["make"],
-        "model": exif["model"],
+        "ext": _sanitize_path_token(source_file.suffix.lstrip(".")),
+        "filename": _sanitize_path_token(source_file.stem),
+        "make": _sanitize_path_token(exif["make"]),
+        "model": _sanitize_path_token(exif["model"]),
     }
     
     try:
         rendered_path = path_template.format(**context)
         return destination_base / rendered_path
     except KeyError as e:
-        logger.error(f"Template error: missing token {e}")
+        logger.warning(f"Template error: missing token {e}")
         # Fallback to simple date-based if template fails
         subfolder_name = date.strftime(folder_format)
         return destination_base / subfolder_name / source_file.name

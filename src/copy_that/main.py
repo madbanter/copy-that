@@ -634,25 +634,22 @@ def watch(
         logger.error("Source directory is required for watch. Please provide --source or set it in config.")
         sys.exit(1)
 
-    lock = ProcessLock("watch")
-    if not lock.acquire():
+    try:
+        with ProcessLock("watch"):
+            shutdown = GracefulShutdown()
+
+            def trigger_sync():
+                try:
+                    run_sync(config, show_summary=False)
+                except SyncError as e:
+                    logger.warning(f"Watch sync failed: {e}")
+
+            with Monitor(shutdown) as monitor:
+                monitor.watch_files(config.source_directory, trigger_sync, debounce=config.watch_debounce)
+                monitor.run()
+    except RuntimeError:
         logger.error("Error: A watch process is already running (lock held).")
         sys.exit(1)
-
-    shutdown = GracefulShutdown()
-
-    def trigger_sync():
-        try:
-            run_sync(config, show_summary=False)
-        except SyncError as e:
-            logger.warning(f"Watch sync failed: {e}")
-
-    try:
-        with Monitor(shutdown) as monitor:
-            monitor.watch_files(config.source_directory, trigger_sync, debounce=config.watch_debounce)
-            monitor.run()
-    finally:
-        lock.release()
 
 
 @app.command()
@@ -676,41 +673,38 @@ def auto_mount(
 
     setup_logging(config, False)
 
-    lock = ProcessLock("auto-mount")
-    if not lock.acquire():
+    try:
+        with ProcessLock("auto-mount"):
+            shutdown = GracefulShutdown()
+
+            def on_mount(mount_path: Path):
+                # Whitelist check
+                is_whitelisted = False
+                if config.auto_mount_whitelist:
+                    for pattern in config.auto_mount_whitelist:
+                        if fnmatch.fnmatch(mount_path.name, pattern):
+                            is_whitelisted = True
+                            break
+                
+                should_sync = is_whitelisted
+                if not is_whitelisted and config.auto_mount_interactive_prompt and sys.stdin.isatty():
+                    if typer.confirm(f"Unknown drive '{mount_path.name}' detected. Sync from this source?"):
+                        should_sync = True
+                
+                if should_sync:
+                    # Create a localized config for this mount
+                    mount_config = config.model_copy(update={"source_directory": mount_path})
+                    try:
+                        run_sync(mount_config, show_summary=True)
+                    except SyncError as e:
+                        logger.warning(f"Auto-mount sync failed for {mount_path}: {e}")
+
+            with Monitor(shutdown) as monitor:
+                monitor.watch_mounts(config.auto_mount_points, on_mount, config.auto_mount_whitelist)
+                monitor.run()
+    except RuntimeError:
         logger.error("Error: An auto-mount process is already running (lock held).")
         sys.exit(1)
-
-    shutdown = GracefulShutdown()
-
-    def on_mount(mount_path: Path):
-        # Whitelist check
-        is_whitelisted = False
-        if config.auto_mount_whitelist:
-            for pattern in config.auto_mount_whitelist:
-                if fnmatch.fnmatch(mount_path.name, pattern):
-                    is_whitelisted = True
-                    break
-        
-        should_sync = is_whitelisted
-        if not is_whitelisted and config.auto_mount_interactive_prompt and sys.stdin.isatty():
-            if typer.confirm(f"Unknown drive '{mount_path.name}' detected. Sync from this source?"):
-                should_sync = True
-        
-        if should_sync:
-            # Create a localized config for this mount
-            mount_config = config.model_copy(update={"source_directory": mount_path})
-            try:
-                run_sync(mount_config, show_summary=True)
-            except SyncError as e:
-                logger.warning(f"Auto-mount sync failed for {mount_path}: {e}")
-
-    try:
-        with Monitor(shutdown) as monitor:
-            monitor.watch_mounts(config.auto_mount_points, on_mount, config.auto_mount_whitelist)
-            monitor.run()
-    finally:
-        lock.release()
 
 
 @app.command()

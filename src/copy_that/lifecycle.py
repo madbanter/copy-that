@@ -24,14 +24,13 @@ def stop_process(name: str) -> bool:
         
     lock = FileLock(str(lock_file), timeout=0)
     try:
-        lock.acquire()
-        # If we can acquire the lock, the process is dead (stale PID)
-        try:
-            pid_file.unlink(missing_ok=True)
-        except Exception:
-            pass
-        lock.release()
-        return False
+        with lock:
+            # If we can acquire the lock, the process is dead (stale PID)
+            try:
+                pid_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return False
     except Timeout:
         # Lock is held, daemon is live
         try:
@@ -70,6 +69,14 @@ class ProcessLock:
             self._lock.release()
         except Exception:
             pass
+
+    def __enter__(self):
+        if not self.acquire():
+            raise RuntimeError("Unable to acquire process lock")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
 class GracefulShutdown:
     def __init__(self):

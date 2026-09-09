@@ -5,6 +5,7 @@ import time
 import errno
 import os
 import threading
+import contextlib
 from pathlib import Path
 from typing import Optional, Literal, Callable
 from enum import Enum
@@ -156,12 +157,10 @@ def copy_file(
         return FileResult(SyncStatus.FAILED, source, destination, error_message=err_msg)
 
     # Resolve destination path under the allocation lock to prevent race conditions
-    has_lock = False
-    if allocated_lock is not None:
-        allocated_lock.acquire()
-        has_lock = True
-        
-    try:
+    lock_ctx = allocated_lock if allocated_lock is not None else contextlib.nullcontext()
+    needs_checksum_verification = False
+
+    with lock_ctx:
         dest_exists = final_destination.exists() or (allocated_paths is not None and final_destination in allocated_paths)
         if dest_exists:
             if conflict_policy == "skip":
@@ -169,15 +168,7 @@ def copy_file(
                     if verification_method == "none":
                         return FileResult(SyncStatus.SKIPPED, source, final_destination)
                     else:
-                        # Release lock for expensive checksum checking
-                        if has_lock:
-                            allocated_lock.release()
-                            has_lock = False
-                        if verify_copy(source, final_destination, verification_method, buffer_size=buffer_size):
-                            return FileResult(SyncStatus.SKIPPED, source, final_destination)
-                        else:
-                            logger.debug(f"Existing file {final_destination.name} failed verification. Re-copying...")
-                            status = SyncStatus.OVERWRITTEN
+                        needs_checksum_verification = True
                 else:
                     return FileResult(SyncStatus.SKIPPED, source, final_destination)
             elif conflict_policy == "overwrite":
@@ -187,16 +178,24 @@ def copy_file(
                 final_destination = get_unique_path(final_destination, allocated_paths, lock=None)
                 status = SyncStatus.RENAMED
 
-        # If lock was released during verification, re-acquire to add final path to registry
-        if allocated_lock is not None and not has_lock:
-            allocated_lock.acquire()
-            has_lock = True
-
-        if allocated_paths is not None:
+        # Reserve atomically alongside collision check when verification is not deferred
+        if not needs_checksum_verification and allocated_paths is not None:
             allocated_paths.add(final_destination)
-    finally:
-        if has_lock:
-            allocated_lock.release()
+
+    # Release lock for expensive checksum checking if needed
+    if needs_checksum_verification:
+        if verify_copy(source, final_destination, verification_method, buffer_size=buffer_size):
+            return FileResult(SyncStatus.SKIPPED, source, final_destination)
+        else:
+            logger.warning(f"Existing file {final_destination.name} failed verification. Re-copying...")
+            status = SyncStatus.OVERWRITTEN
+            
+            # Re-enter lock context to re-evaluate path reservation post verification failure
+            with lock_ctx:
+                if conflict_policy == "rename":
+                    final_destination = get_unique_path(final_destination, allocated_paths, lock=None)
+                if allocated_paths is not None:
+                    allocated_paths.add(final_destination)
 
     # Atomic Write: Copy to a temporary file first
     temp_destination = final_destination.with_suffix(final_destination.suffix + ".ct-tmp")
@@ -262,7 +261,7 @@ def copy_file(
                             active_temp_files.discard(temp_destination)
                     return FileResult(SyncStatus.FAILED, source, final_destination, error_message="Verification failed and file deleted")
                 elif verification_failure_behavior == "ignore":
-                    logger.debug(f"Verification failed for {source.name}, but ignoring per config.")
+                    logger.warning(f"Verification failed for {source.name}, but ignoring per config.")
                     # Move temp to final and return success
                     os.replace(temp_destination, final_destination)
                     if active_temp_files is not None:
@@ -303,7 +302,7 @@ def copy_file(
                     active_temp_files.discard(temp_destination)
             
             if is_retryable_error(e):
-                logger.debug(f"Transient error copying {source.name}: {last_error_msg}")
+                logger.warning(f"Transient error copying {source.name}: {last_error_msg}")
                 continue # Retry loop
             else:
                 # Terminal error
