@@ -137,7 +137,7 @@ uv run pyinstaller copy_that_tray.spec
 
 ## Technical Principles
 
-- **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types. An in-memory registry with thread locks prevents workers from allocating the same destination path simultaneously.
+- **Concurrent I/O**: Uses multi-threading to maximize throughput across different storage types. Destination paths are reserved atomically alongside collision resolution inside scoped thread locks (`allocated_lock`), preventing worker threads from racing on identical output paths or temporary `.ct-tmp` files.
 - **Data-First**: Always copies rather than moves, ensuring your source media remains untouched.
 - **Strict Validation**: Utilizes type-safe configuration parsing to catch errors early.
 - **Robust Error Handling**: Gracefully handles disk disconnection, permission issues, and corrupt files. Unfinished temporary files are cleaned up automatically on interrupt or error.
