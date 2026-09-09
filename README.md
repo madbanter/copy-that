@@ -14,7 +14,7 @@ Optimized for photographers and media creators:
 
 ### Smart Organization
 
-- **Date Mode**: Automatically groups files into subfolders based on creation, modification, or **dates extracted from filenames** (e.g., `2024/03-March/20`).
+- **Date Mode**: Automatically groups files into subfolders based on creation, modification, or dates extracted from filenames (e.g., `2024/03-March/20`).
 - **Mirror Mode**: Preserves your existing folder structure exactly as it is on the source.
 - **Case-Insensitive Filtering**: Broad support for extensions (e.g., `.JPG` and `.jpg` are handled identically).
 
@@ -24,7 +24,7 @@ Optimized for photographers and media creators:
 - **Interrupt Cleanup**: If the process is interrupted mid-sync, any in-flight `.ct-tmp` files are automatically unlinked before exit, leaving no partial data at the destination.
 - **Robust Retries**: Automatically handles transient hardware glitches or driver "hiccups" with configurable retries and exponential backoff.
 - **Metadata Preservation**: Keeps your original file timestamps and permissions intact, with a graceful fallback for filesystems with limited attribute support (e.g., FAT32, exFAT, SMB shares).
-- **Data Verification**: Optional post-copy checksumming (MD5, SHA1, or Size) to ensure data integrity.
+- **Data Verification**: Optional post-copy verification (based on file size or checksums ) to ensure data integrity.
 - **Safe Conflicts**: Configurable policies to skip, overwrite, or rename files if they already exist at the destination. Rename allocation is thread-safe, preventing two workers from targeting the same suffix concurrently.
 - **Pre-flight Checks**: Optional disk space estimation and a comprehensive **Dry Run** mode to see results before any data is moved.
 
@@ -74,7 +74,7 @@ copy-that --install-completion
 CopyThat runs background services for file watching and mount detection.
 
 - **Locking:** These services use cross-platform file-based locking (via `filelock`) to ensure single-instance operation. If a service crashes, the OS automatically releases the lock, eliminating "stale PID" issues.
-- **Stopping:** Run `copy-that stop` to terminate all active background services. You can also target specific services using `--watch` or `--auto-mount`. Services are designed to shut down gracefully upon receiving a `SIGTERM` signal. *(Note: On Windows, background services are terminated forcefully due to OS limitations with signal handling, but file locks are still automatically released by the OS.)*
+- **Stopping:** Run `copy-that stop` to terminate all active background services. You can also target specific services using `--watch` or `--auto-mount`. Services are designed to shut down gracefully upon receiving a `SIGTERM` signal. _(Note: On Windows, background services are terminated forcefully due to OS limitations with signal handling, but file locks are still automatically released by the OS.)_
 
 ## CLI Options
 
